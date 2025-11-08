@@ -13,13 +13,21 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "https://raypay-1.onrender.com", // ✅ tu frontend render URL
-      "http://localhost:5500" // para desarrollo local
+      "https://raypay-1.onrender.com", // tu frontend
+      "http://localhost:5500",         // dev local
     ],
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    methods: ["GET", "POST", "OPTIONS"],
+    // Quita allowedHeaders para que CORS permita los que mande el navegador
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   })
 );
+
+// (Opcional) responder algo en GET /
+app.get("/", (_req, res) => {
+  res.send("RayPay backend OK ✅");
+});
+
 
 app.use(express.json());
 
