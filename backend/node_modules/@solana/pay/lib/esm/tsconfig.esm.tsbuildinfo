@@ -1,0 +1,1 @@
+{"root":["../../src/constants.ts","../../src/createqr.ts","../../src/createtransfer.ts","../../src/encodeurl.ts","../../src/fetchtransaction.ts","../../src/findreference.ts","../../src/index.ts","../../src/parseurl.ts","../../src/types.ts","../../src/validatetransfer.ts"],"version":"5.6.3"}
