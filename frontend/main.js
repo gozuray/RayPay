@@ -18,7 +18,6 @@ toggleAdvanced.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
 
-  // alternar panel
   const isVisible = advanced.classList.contains("visible");
   if (isVisible) {
     advanced.classList.remove("visible");
@@ -55,7 +54,6 @@ amountInput.addEventListener("input", (e) => {
 
   let value = clampDecimals(e.target.value, maxDecimals);
 
-  // límite superior opcional
   const numeric = parseFloat(value);
   if (!isNaN(numeric) && numeric > 1000) value = "1000";
 
@@ -100,14 +98,12 @@ function showPaymentStatus(msg) {
 async function checkPaymentStatus(reference) {
   if (!reference) return;
   try {
-    const response = await fetch(`http://127.0.0.1:3000/confirm/${reference}`);
+    const response = await fetch(`https://raypay-e2vo.onrender.com/confirm/${reference}`);
     if (!response.ok) return;
 
     const data = await response.json();
     if (data.status === "pagado") {
-      showPaymentStatus(
-        `✅ Pago confirmado (${data.signature.slice(0, 8)}...)`
-      );
+      showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
       qrContainer.style.filter = "drop-shadow(0 0 20px #14f195)";
       ding.play();
       clearInterval(checkInterval);
@@ -138,7 +134,6 @@ btn.addEventListener("click", async () => {
   const token = tokenSelect ? tokenSelect.value : "USDC";
   const decimals = token === "SOL" ? 5 : 3;
 
-  // Normaliza el valor del input
   let raw = amountInput.value.trim();
   raw = clampDecimals(raw, decimals);
 
@@ -154,7 +149,7 @@ btn.addEventListener("click", async () => {
   try {
     const fixedAmount = amount.toFixed(decimals);
 
-    const response = await fetch("http://127.0.0.1:3000/create-payment", {
+    const response = await fetch("https://raypay-e2vo.onrender.com/create-payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -175,7 +170,6 @@ btn.addEventListener("click", async () => {
       return;
     }
 
-    // Mostrar QR
     // === Generar QR con suavizado ===
     const qrSize = 320;
     new QRCode(qrContainer, {
@@ -211,14 +205,12 @@ btn.addEventListener("click", async () => {
 
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
-    // Mostrar solo primeros y últimos 4 caracteres de la dirección
     const shortAddr =
       walletAddress.length > 10
         ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
         : walletAddress;
 
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
-
     document.getElementById("walletInfo").style.display = "block";
 
     btnCopy.onclick = () => {
@@ -229,11 +221,8 @@ btn.addEventListener("click", async () => {
     };
 
     console.log("✅ QR generado:", data.solana_url);
-
-    // Estado inicial
     showPaymentStatus("⏳ Esperando pago en la red Solana...");
 
-    // Iniciar verificación periódica
     currentReference = data.reference;
     checkInterval = setInterval(() => {
       checkPaymentStatus(currentReference);
