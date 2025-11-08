@@ -7,24 +7,36 @@ const tokenSelect = document.getElementById("token");
 const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
 
-let checkInterval = null; // control del ciclo de verificación
+let checkInterval = null;
 let currentReference = null;
 
 // 🎵 Sonido para pago confirmado
-const ding = new Audio(
-  "https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"
-);
+const ding = new Audio("assets/sounds/cash-sound.mp3");
 
-// Mostrar/ocultar configuración avanzada
-toggleAdvanced.addEventListener("click", () => {
-  advanced.style.display = advanced.style.display === "none" ? "block" : "none";
+// === Mostrar / ocultar configuración avanzada con animación y rotación ===
+toggleAdvanced.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  // alternar panel
+  const isVisible = advanced.classList.contains("visible");
+  if (isVisible) {
+    advanced.classList.remove("visible");
+    toggleAdvanced.classList.remove("rotating");
+  } else {
+    advanced.classList.add("visible");
+    toggleAdvanced.classList.add("rotating");
+  }
 });
 
-// Función auxiliar: recorta decimales según token
+// evita que el foco “consuma” el primer clic
+toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
+
+// === Función auxiliar: recorta decimales según token ===
 function clampDecimals(valueStr, decimals) {
   let v = (valueStr || "")
-    .replace(",", ".")            // soporta coma
-    .replace(/[^\d.]/g, "");      // solo números y punto
+    .replace(",", ".") // soporta coma
+    .replace(/[^\d.]/g, ""); // solo números y punto
 
   const parts = v.split(".");
   if (parts.length > 2) v = parts[0] + "." + parts.slice(1).join("");
@@ -36,7 +48,7 @@ function clampDecimals(valueStr, decimals) {
   return v;
 }
 
-// Limitar input en tiempo real: SOL=5, USDC=3
+// === Limitar input en tiempo real: SOL=5, USDC=3 ===
 amountInput.addEventListener("input", (e) => {
   const token = tokenSelect ? tokenSelect.value : "USDC";
   const maxDecimals = token === "SOL" ? 5 : 3;
@@ -50,7 +62,7 @@ amountInput.addEventListener("input", (e) => {
   e.target.value = value;
 });
 
-// Al cambiar el token, revalida el campo para ajustar decimales visibles
+// === Al cambiar token, revalida decimales visibles ===
 if (tokenSelect) {
   tokenSelect.addEventListener("change", () => {
     const token = tokenSelect.value;
@@ -59,6 +71,7 @@ if (tokenSelect) {
   });
 }
 
+// === Mostrar estado de pago ===
 function showPaymentStatus(msg) {
   let statusEl = document.getElementById("status");
   if (!statusEl) {
@@ -83,7 +96,7 @@ function showPaymentStatus(msg) {
   statusEl.textContent = msg;
 }
 
-// Consultar estado del pago
+// === Consultar estado del pago (polling) ===
 async function checkPaymentStatus(reference) {
   if (!reference) return;
   try {
@@ -92,7 +105,9 @@ async function checkPaymentStatus(reference) {
 
     const data = await response.json();
     if (data.status === "pagado") {
-      showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
+      showPaymentStatus(
+        `✅ Pago confirmado (${data.signature.slice(0, 8)}...)`
+      );
       qrContainer.style.filter = "drop-shadow(0 0 20px #14f195)";
       ding.play();
       clearInterval(checkInterval);
@@ -106,7 +121,7 @@ async function checkPaymentStatus(reference) {
   }
 }
 
-// Generar QR y crear nuevo pago
+// === Generar QR y crear nuevo pago ===
 btn.addEventListener("click", async () => {
   // Reiniciar estado anterior
   if (checkInterval) {
@@ -123,12 +138,11 @@ btn.addEventListener("click", async () => {
   const token = tokenSelect ? tokenSelect.value : "USDC";
   const decimals = token === "SOL" ? 5 : 3;
 
-  // Normaliza el valor del input a los decimales definidos (sin forzar 2)
+  // Normaliza el valor del input
   let raw = amountInput.value.trim();
   raw = clampDecimals(raw, decimals);
 
   const amount = parseFloat(raw);
-
   if (isNaN(amount) || amount <= 0) {
     alert("⚠️ Ingresa un monto válido");
     return;
@@ -138,7 +152,7 @@ btn.addEventListener("click", async () => {
   btn.textContent = "Generando QR...";
 
   try {
-    const fixedAmount = amount.toFixed(decimals); // ← precisión correcta por token
+    const fixedAmount = amount.toFixed(decimals);
 
     const response = await fetch("http://127.0.0.1:3000/create-payment", {
       method: "POST",
@@ -161,19 +175,50 @@ btn.addEventListener("click", async () => {
       return;
     }
 
-    // Mostrar QR (aumentado y con M para evitar overflow)
+    // Mostrar QR
+    // === Generar QR con suavizado ===
+    const qrSize = 320;
     new QRCode(qrContainer, {
       text: data.solana_url,
-      width: 320,
-      height: 320,
+      width: qrSize,
+      height: qrSize,
       colorDark: "#c084fc",
       colorLight: "#0a0018",
       correctLevel: QRCode.CorrectLevel.M,
     });
 
+    // 🔧 Mejora visual (suavizado del QR)
+    const qrCanvas = qrContainer.querySelector("canvas");
+    if (qrCanvas) {
+      const ctx = qrCanvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      qrCanvas.style.borderRadius = "12px";
+      qrCanvas.style.boxShadow = "0 0 15px rgba(192, 132, 252, 0.25)";
+      qrCanvas.style.backgroundColor = "#0a0018";
+    }
+
+    // ✨ Animación de aparición (fade + scale)
+    if (qrCanvas) {
+      qrCanvas.style.opacity = "0";
+      qrCanvas.style.transform = "scale(0.8)";
+      setTimeout(() => {
+        qrCanvas.style.transition = "all 0.45s ease";
+        qrCanvas.style.opacity = "1";
+        qrCanvas.style.transform = "scale(1)";
+      }, 50);
+    }
+
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
-    walletAddressEl.textContent = `Recibir en: ${walletAddress}`;
+    // Mostrar solo primeros y últimos 4 caracteres de la dirección
+    const shortAddr =
+      walletAddress.length > 10
+        ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
+        : walletAddress;
+
+    walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
+
     document.getElementById("walletInfo").style.display = "block";
 
     btnCopy.onclick = () => {

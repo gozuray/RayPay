@@ -1,0 +1,213 @@
+/* === Estilos base === */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: "Poppins", sans-serif;
+}
+
+body {
+  background: radial-gradient(circle at 50% 30%, #14002c, #060012 90%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* === Contenedor principal === */
+.card {
+  background: rgba(20, 0, 40, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 30px 25px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 0 25px rgba(192, 132, 252, 0.15);
+  position: relative;
+  text-align: center;
+  transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 0 40px rgba(192, 132, 252, 0.35);
+}
+
+/* === Título principal === */
+.card h2 {
+  margin-top: 10px;
+  padding-top: 40px; /* espacio para que no se superponga la tuerca */
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+/* === Botón de configuración (⚙️) === */
+#toggleAdvanced {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 1.3rem;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999;
+  user-select: none;
+  transition: transform 0.3s ease, background 0.3s ease;
+}
+
+#toggleAdvanced:hover {
+  background: rgba(192, 132, 252, 0.3);
+  transform: rotate(20deg);
+}
+
+#toggleAdvanced:focus {
+  outline: none;
+}
+
+#toggleAdvanced.rotating {
+  transform: rotate(180deg);
+}
+
+/* === Sección avanzada === */
+#advanced {
+  display: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: all 0.25s ease;
+  margin-top: 15px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 15px;
+}
+
+#advanced.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* === Inputs y botones === */
+input,
+select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 1rem;
+  margin: 10px 0;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transition: background 0.2s ease;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+button {
+  background: linear-gradient(135deg, #c084fc, #6a0dad);
+  border: none;
+  color: #fff;
+  padding: 10px 18px;
+  font-size: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+
+button:hover {
+  background: linear-gradient(135deg, #e0b3ff, #8a2be2);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+/* === QR y estado === */
+#qrcode {
+  margin: 20px auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#status {
+  margin-top: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* === Información de wallet === */
+#walletInfo {
+  margin-top: 15px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  color: #ddd;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#walletAddress {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 260px;
+  margin-bottom: 5px;
+}
+
+/* === Footer === */
+footer {
+  margin-top: 25px;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* === Suavizado visual del QR === */
+#qrcode canvas {
+  image-rendering: auto;
+  border-radius: 12px;
+  box-shadow: 0 0 15px rgba(192, 132, 252, 0.25);
+  background-color: #0a0018;
+}
+
+/* Si la librería genera <img> en lugar de <canvas> */
+#qrcode img {
+  border-radius: 12px;
+  image-rendering: smooth;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: high-quality;
+  box-shadow: 0 0 15px rgba(192, 132, 252, 0.25);
+}
+/* === Animación de aparición del QR === */
+@keyframes qrFadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+#qrcode canvas,
+#qrcode img {
+  animation: qrFadeIn 0.45s ease forwards;
+}
