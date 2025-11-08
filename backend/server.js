@@ -12,11 +12,15 @@ const app = express();
 // ✅ CORS: permite Live Server y localhost
 app.use(
   cors({
-    origin: ["http://127.0.0.1:5500", "http://localhost:5500"],
+    origin: [
+      "https://raypay-1.onrender.com", // ✅ tu frontend render URL
+      "http://localhost:5500" // para desarrollo local
+    ],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
   })
 );
+
 app.use(express.json());
 
 // ⚙️ Config
