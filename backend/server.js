@@ -121,36 +121,73 @@ app.get("/confirm/:reference", async (req, res) => {
       finality: "confirmed",
     });
 
-    if (!sigInfo?.signature) {
+    if (!sigInfo || !sigInfo.signature) {
       return res.json({ status: "pendiente" });
     }
 
-    await validateTransfer(connection, {
-      recipient: new PublicKey(MERCHANT_WALLET),
-      amount: toBN(payment.amount),
-      reference: referenceKey,
-      splToken:
-        payment.token === "USDC"
-          ? new PublicKey(USDC_MINTS[CLUSTER])
-          : undefined,
+    const tx = await connection.getParsedTransaction(sigInfo.signature, {
+      commitment: "confirmed",
     });
 
-    payment.status = "pagado";
-    payment.signature = sigInfo.signature;
+    if (!tx || !tx.meta) {
+      return res.json({ status: "pendiente" });
+    }
 
-    console.log(`✅ Pago confirmado (${payment.token}): ${payment.amount}`);
-    res.json({ status: "pagado", signature: sigInfo.signature });
+    // ✅ Validación manual del destinatario y monto
+    const merchant = MERCHANT_WALLET;
+    const expectedAmount = parseFloat(payment.amount);
+
+    let received = 0;
+
+    if (payment.token === "SOL") {
+      // Busca cuántos lamports recibió tu cuenta
+      const pre = tx.meta.preBalances;
+      const post = tx.meta.postBalances;
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const index = keys.indexOf(merchant);
+      if (index >= 0) {
+        const diffLamports = post[index] - pre[index];
+        received = diffLamports / 1e9; // convertir a SOL
+      }
+    } else {
+      // Para USDC (token SPL)
+      const postToken = tx.meta.postTokenBalances.find(
+        (b) => b.owner === merchant
+      );
+      if (postToken) {
+        received = parseFloat(postToken.uiTokenAmount.uiAmountString);
+      }
+    }
+
+    // Comparar con tolerancia mínima (por ejemplo 0.00001)
+    if (received >= expectedAmount - 0.00001) {
+      payment.status = "pagado";
+      payment.signature = sigInfo.signature;
+      console.log(`✅ Pago confirmado (${payment.token}): ${received}`);
+      return res.json({ status: "pagado", signature: sigInfo.signature });
+    } else {
+      console.log(
+        `⚠️ Transacción encontrada pero el monto recibido ${received} no coincide con ${expectedAmount}`
+      );
+      return res.json({ status: "pendiente" });
+    }
   } catch (err) {
     if (err.message?.includes("not found")) {
-      res.json({ status: "pendiente" });
+      return res.json({ status: "pendiente" });
     } else {
       console.error("Error verificando pago:", err);
-      res
-        .status(500)
-        .json({ error: "Error al verificar el pago", details: err.message });
+      return res.status(500).json({
+        error: "Error al verificar el pago",
+        details: err.message,
+      });
     }
   }
 });
+
+
+
+
+
 
 // 🧾 Historial
 app.get("/history", (req, res) => {
