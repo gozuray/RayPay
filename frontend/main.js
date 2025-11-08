@@ -1,3 +1,4 @@
+// === Variables principales ===
 const btn = document.getElementById("btnGenerate");
 const amountInput = document.getElementById("amount");
 const qrContainer = document.getElementById("qrcode");
@@ -9,6 +10,9 @@ const advanced = document.getElementById("advanced");
 
 let checkInterval = null;
 let currentReference = null;
+
+// 🌐 URL del backend desplegado en Render
+const API_URL = "https://raypaybackend.onrender.com";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -98,7 +102,7 @@ function showPaymentStatus(msg) {
 async function checkPaymentStatus(reference) {
   if (!reference) return;
   try {
-    const response = await fetch(`https://raypay-e2vo.onrender.com/confirm/${reference}`);
+    const response = await fetch(`${API_URL}/confirm/${reference}`);
     if (!response.ok) return;
 
     const data = await response.json();
@@ -149,7 +153,7 @@ btn.addEventListener("click", async () => {
   try {
     const fixedAmount = amount.toFixed(decimals);
 
-    const response = await fetch("https://raypay-e2vo.onrender.com/create-payment", {
+    const response = await fetch(`${API_URL}/create-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -190,10 +194,8 @@ btn.addEventListener("click", async () => {
       qrCanvas.style.borderRadius = "12px";
       qrCanvas.style.boxShadow = "0 0 15px rgba(192, 132, 252, 0.25)";
       qrCanvas.style.backgroundColor = "#0a0018";
-    }
 
-    // ✨ Animación de aparición (fade + scale)
-    if (qrCanvas) {
+      // ✨ Animación de aparición
       qrCanvas.style.opacity = "0";
       qrCanvas.style.transform = "scale(0.8)";
       setTimeout(() => {
@@ -203,6 +205,7 @@ btn.addEventListener("click", async () => {
       }, 50);
     }
 
+    // Mostrar dirección resumida
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
     const shortAddr =
