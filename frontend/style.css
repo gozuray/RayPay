@@ -281,3 +281,29 @@ select:focus {
   background-color: rgba(255, 255, 255, 0.15);
   outline: none;
 }
+
+/* === Efecto de neblina luminosa alrededor del QR === */
+.qr-glow {
+  position: relative;
+  display: inline-block;
+  border-radius: 16px;
+  box-shadow:
+    0 0 25px 10px rgba(192, 132, 252, 0.25),
+    0 0 45px 25px rgba(192, 132, 252, 0.15),
+    0 0 70px 40px rgba(192, 132, 252, 0.1);
+  transition: box-shadow 1s ease;
+}
+
+/* === Versión verde cuando el pago es confirmado === */
+.qr-glow.confirmed {
+  box-shadow:
+    0 0 25px 10px rgba(20, 241, 149, 0.3),
+    0 0 45px 25px rgba(20, 241, 149, 0.18),
+    0 0 70px 40px rgba(20, 241, 149, 0.1);
+}
+
+/* === Suaviza el contorno interno del QR === */
+#qrcode canvas {
+  border-radius: 12px;
+  background-color: #0a0018;
+}

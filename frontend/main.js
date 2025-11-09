@@ -103,13 +103,15 @@ async function checkPaymentStatus(reference) {
 
     const data = await response.json();
     if (data.status === "pagado") {
-      showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
-      qrContainer.style.filter = "drop-shadow(0 0 20px #14f195)";
-      ding.play();
-      clearInterval(checkInterval);
-      checkInterval = null;
-      currentReference = null;
-    } else if (data.status === "pendiente") {
+  showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
+  qrContainer.style.filter = "none";
+  qrContainer.classList.add("confirmed"); // 💚 cambia la niebla a verde
+  ding.play();
+  clearInterval(checkInterval);
+  checkInterval = null;
+  currentReference = null;
+}
+ else if (data.status === "pendiente") {
       console.log("⏳ Aún pendiente...");
     }
   } catch (err) {
@@ -181,6 +183,9 @@ btn.addEventListener("click", async () => {
       colorLight: "#0a0018",
       correctLevel: QRCode.CorrectLevel.M,
     });
+    // === Efecto de neblina alrededor del QR ===
+qrContainer.classList.add("qr-glow");
+
 
     // 🔧 Mejora visual del QR
     const qrCanvas = qrContainer.querySelector("canvas");
