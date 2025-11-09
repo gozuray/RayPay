@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { PublicKey, Connection, clusterApiUrl, Keypair } from "@solana/web3.js";
-import { encodeURL, findReference, validateTransfer } from "@solana/pay";
+import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import dotenv from "dotenv";
 
@@ -9,32 +9,33 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS: permite Live Server y localhost
+// ✅ CORS: permite localhost y Live Server
 app.use(
   cors({
     origin: [
-      "https://raypay-1.onrender.com", // tu frontend
-      "http://localhost:5500",         // dev local
+      "http://127.0.0.1:5500", // VSCode Live Server
+      "http://localhost:5500", // Live Server alternativa
+      "http://127.0.0.1:3000", // backend local
+      "http://localhost:3000", // backend local
     ],
     methods: ["GET", "POST", "OPTIONS"],
-    // Quita allowedHeaders para que CORS permita los que mande el navegador
     preflightContinue: false,
     optionsSuccessStatus: 204,
   })
 );
 
-// (Opcional) responder algo en GET /
-app.get("/", (_req, res) => {
-  res.send("RayPay backend OK ✅");
-});
-
-
 app.use(express.json());
 
-// ⚙️ Config
+// (Opcional) endpoint base para probar conexión rápida
+app.get("/", (_req, res) => {
+  res.send("✅ RayPay backend local funcionando correctamente.");
+});
+
+// ⚙️ Configuración base
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
-if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en .env");
+if (!MERCHANT_WALLET)
+  throw new Error("❌ Falta MERCHANT_WALLET en archivo .env");
 
 const USDC_MINTS = {
   "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -56,27 +57,19 @@ app.post("/create-payment", (req, res) => {
   try {
     let { amount, restaurant, token } = req.body;
 
-    if (amount === undefined || amount === null || isNaN(Number(amount))) {
+    if (amount === undefined || isNaN(Number(amount))) {
       return res.status(400).json({ error: "Monto inválido" });
     }
 
     const chosenToken = token === "SOL" ? "SOL" : "USDC";
-    // Normaliza decimales según token (SOL=5, USDC=3)
-    if (chosenToken === "SOL") {
-      amount = parseFloat(amount).toFixed(5);
-    } else {
-      amount = parseFloat(amount).toFixed(3);
-    }
+    amount = parseFloat(amount).toFixed(chosenToken === "SOL" ? 5 : 3);
 
     const usdcMint = USDC_MINTS[CLUSTER];
 
-    // Referencia aleatoria
+    // Referencia única por transacción
     const reference = Keypair.generate().publicKey;
-
-    // BigNumber
     const amountBN = toBN(amount);
 
-    // URL Solana Pay
     const url = encodeURL({
       recipient: new PublicKey(MERCHANT_WALLET),
       amount: amountBN,
@@ -86,7 +79,6 @@ app.post("/create-payment", (req, res) => {
       reference,
     });
 
-    // Guardar registro
     global.payments[reference.toBase58()] = {
       amount: amountBN.toString(),
       token: chosenToken,
@@ -95,9 +87,7 @@ app.post("/create-payment", (req, res) => {
     };
 
     console.log(
-      `[${CLUSTER}] 💰 Nuevo pago: ${amountBN.toString()} ${chosenToken} → ${
-        restaurant || "Restaurante Lisboa"
-      }`
+      `[${CLUSTER}] 💰 Nuevo pago: ${amountBN.toString()} ${chosenToken}`
     );
     console.log(`Referencia: ${reference.toBase58()}`);
 
@@ -110,9 +100,7 @@ app.post("/create-payment", (req, res) => {
     });
   } catch (err) {
     console.error("Error en /create-payment:", err);
-    res
-      .status(500)
-      .json({ error: "Error generando el pago", details: err.message });
+    res.status(500).json({ error: "Error generando el pago", details: err.message });
   }
 });
 
@@ -124,8 +112,7 @@ app.get("/confirm/:reference", async (req, res) => {
   const { reference } = req.params;
   const payment = global.payments[reference];
 
-  if (!payment)
-    return res.status(404).json({ error: "Referencia no encontrada" });
+  if (!payment) return res.status(404).json({ error: "Referencia no encontrada" });
 
   try {
     const referenceKey = new PublicKey(reference);
@@ -152,17 +139,17 @@ app.get("/confirm/:reference", async (req, res) => {
     let received = 0;
 
     if (payment.token === "SOL") {
-      // Busca cuántos lamports recibió tu cuenta
       const pre = tx.meta.preBalances;
       const post = tx.meta.postBalances;
-      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const keys = tx.transaction.message.accountKeys.map((k) =>
+        k.pubkey.toBase58()
+      );
       const index = keys.indexOf(merchant);
       if (index >= 0) {
         const diffLamports = post[index] - pre[index];
-        received = diffLamports / 1e9; // convertir a SOL
+        received = diffLamports / 1e9;
       }
     } else {
-      // Para USDC (token SPL)
       const postToken = tx.meta.postTokenBalances.find(
         (b) => b.owner === merchant
       );
@@ -171,7 +158,7 @@ app.get("/confirm/:reference", async (req, res) => {
       }
     }
 
-    // Comparar con tolerancia mínima (por ejemplo 0.00001)
+    // Comparar con tolerancia mínima
     if (received >= expectedAmount - 0.00001) {
       payment.status = "pagado";
       payment.signature = sigInfo.signature;
@@ -179,7 +166,7 @@ app.get("/confirm/:reference", async (req, res) => {
       return res.json({ status: "pagado", signature: sigInfo.signature });
     } else {
       console.log(
-        `⚠️ Transacción encontrada pero el monto recibido ${received} no coincide con ${expectedAmount}`
+        `⚠️ Monto recibido ${received} no coincide con ${expectedAmount}`
       );
       return res.json({ status: "pendiente" });
     }
@@ -188,18 +175,12 @@ app.get("/confirm/:reference", async (req, res) => {
       return res.json({ status: "pendiente" });
     } else {
       console.error("Error verificando pago:", err);
-      return res.status(500).json({
-        error: "Error al verificar el pago",
-        details: err.message,
-      });
+      return res
+        .status(500)
+        .json({ error: "Error al verificar el pago", details: err.message });
     }
   }
 });
-
-
-
-
-
 
 // 🧾 Historial
 app.get("/history", (req, res) => {

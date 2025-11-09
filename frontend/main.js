@@ -11,8 +11,8 @@ const advanced = document.getElementById("advanced");
 let checkInterval = null;
 let currentReference = null;
 
-// 🌐 URL del backend desplegado en Render
-const API_URL = "https://raypaybackend.onrender.com";
+// 🌐 URL del backend local
+const API_URL = "http://127.0.0.1:3000";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -220,7 +220,7 @@ btn.addEventListener("click", async () => {
     btnCopy.onclick = () => {
       navigator.clipboard.writeText(walletAddress).then(() => {
         btnCopy.textContent = "Copiado ✅";
-        btnCopy.style.backgroundColor = "#16a34a"; // verde temporal
+        btnCopy.style.backgroundColor = "#16a34a";
         btnCopy.style.transform = "scale(1.03)";
         setTimeout(() => {
           btnCopy.textContent = "Copiar dirección";
