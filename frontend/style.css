@@ -38,7 +38,7 @@ body {
 /* === Título principal === */
 .card h2 {
   margin-top: 10px;
-  padding-top: 40px; /* espacio para que no se superponga la tuerca */
+  padding-top: 40px; /* espacio para la tuerca */
   font-size: 1.4rem;
   font-weight: 600;
 }
@@ -96,7 +96,7 @@ body {
   transform: translateY(0);
 }
 
-/* === Inputs y botones === */
+/* === Inputs y select === */
 input,
 select {
   width: 100%;
@@ -117,6 +117,7 @@ select:focus {
   background: rgba(255, 255, 255, 0.15);
 }
 
+/* === Botones generales === */
 button {
   background: linear-gradient(135deg, #c084fc, #6a0dad);
   border: none;
@@ -150,7 +151,7 @@ button:active {
   text-align: center;
 }
 
-/* === Información de wallet === */
+/* === Información de wallet === *//* === Información de wallet === */
 #walletInfo {
   margin-top: 15px;
   word-wrap: break-word;
@@ -158,17 +159,47 @@ button:active {
   font-size: 0.9rem;
   color: #ddd;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center; /* centrado */
 }
 
 #walletAddress {
+  display: block; /* fuerza salto de línea */
+  margin-bottom: 8px;
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: #eee;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  display: inline-block;
   max-width: 260px;
-  margin-bottom: 5px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* === Botón "Copiar dirección" fijo y centrado debajo === */
+#btnCopy {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 10px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: white;
+  background-color: #6d28d9;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 160px; /* mantiene tamaño fijo */
+  text-align: center;
+}
+
+#btnCopy:hover {
+  background-color: #8b5cf6;
+  transform: scale(1.03);
+}
+
+#btnCopy:active {
+  transform: scale(0.97);
 }
 
 /* === Footer === */
@@ -195,6 +226,7 @@ footer {
   image-rendering: high-quality;
   box-shadow: 0 0 15px rgba(192, 132, 252, 0.25);
 }
+
 /* === Animación de aparición del QR === */
 @keyframes qrFadeIn {
   0% {
@@ -210,4 +242,42 @@ footer {
 #qrcode canvas,
 #qrcode img {
   animation: qrFadeIn 0.45s ease forwards;
+}
+
+/* === Estilo oscuro del <select> y su menú desplegable === */
+select {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 1rem;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+}
+
+/* Triángulo de flecha personalizado */
+select::-ms-expand {
+  display: none;
+}
+
+/* === Menú desplegable forzado a modo oscuro (Firefox + WebKit) === */
+option {
+  background-color: #1a1030;
+  color: #fff;
+}
+
+/* Para algunos navegadores que ignoran el background del option */
+select:focus option {
+  background-color: #1a1030 !important;
+  color: #fff !important;
+}
+
+/* === Hover y focus === */
+select:hover,
+select:focus {
+  background-color: rgba(255, 255, 255, 0.15);
+  outline: none;
 }
