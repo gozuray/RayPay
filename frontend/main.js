@@ -1,4 +1,4 @@
-// === Variables principales ===
+// === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
 const amountInput = document.getElementById("amount");
 const qrContainer = document.getElementById("qrcode");
@@ -32,14 +32,14 @@ toggleAdvanced.addEventListener("click", (e) => {
   }
 });
 
-// evita que el foco “consuma” el primer clic
+// Evita que el foco “consuma” el primer clic
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
 // === Función auxiliar: recorta decimales según token ===
 function clampDecimals(valueStr, decimals) {
   let v = (valueStr || "")
-    .replace(",", ".") // soporta coma
-    .replace(/[^\d.]/g, ""); // solo números y punto
+    .replace(",", ".")
+    .replace(/[^\d.]/g, "");
 
   const parts = v.split(".");
   if (parts.length > 2) v = parts[0] + "." + parts.slice(1).join("");
@@ -57,10 +57,9 @@ amountInput.addEventListener("input", (e) => {
   const maxDecimals = token === "SOL" ? 5 : 3;
 
   let value = clampDecimals(e.target.value, maxDecimals);
-
   const numeric = parseFloat(value);
-  if (!isNaN(numeric) && numeric > 1000) value = "1000";
 
+  if (!isNaN(numeric) && numeric > 1000) value = "1000";
   e.target.value = value;
 });
 
@@ -108,7 +107,7 @@ async function checkPaymentStatus(reference) {
     const data = await response.json();
     if (data.status === "pagado") {
       showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
-      qrContainer.style.filter = "drop-shadow(0 0 20px #14f195)";
+      qrContainer.classList.add("confirmed"); // 💚 cambia niebla a verde
       ding.play();
       clearInterval(checkInterval);
       checkInterval = null;
@@ -185,17 +184,18 @@ btn.addEventListener("click", async () => {
       correctLevel: QRCode.CorrectLevel.M,
     });
 
-    // 🔧 Mejora visual (suavizado del QR)
+    // === Efecto de neblina alrededor del QR ===
+    qrContainer.classList.remove("confirmed");
+    qrContainer.classList.add("qr-glow");
+
+    // 🔧 Mejora visual del QR
     const qrCanvas = qrContainer.querySelector("canvas");
     if (qrCanvas) {
       const ctx = qrCanvas.getContext("2d");
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
       qrCanvas.style.borderRadius = "12px";
-      qrCanvas.style.boxShadow = "0 0 15px rgba(192, 132, 252, 0.25)";
       qrCanvas.style.backgroundColor = "#0a0018";
-
-      // ✨ Animación de aparición
       qrCanvas.style.opacity = "0";
       qrCanvas.style.transform = "scale(0.8)";
       setTimeout(() => {
@@ -205,7 +205,7 @@ btn.addEventListener("click", async () => {
       }, 50);
     }
 
-    // Mostrar dirección resumida
+    // === Mostrar dirección resumida ===
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
     const shortAddr =
@@ -216,10 +216,17 @@ btn.addEventListener("click", async () => {
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
     document.getElementById("walletInfo").style.display = "block";
 
+    // === Copiar dirección sin mover el botón ===
     btnCopy.onclick = () => {
       navigator.clipboard.writeText(walletAddress).then(() => {
         btnCopy.textContent = "Copiado ✅";
-        setTimeout(() => (btnCopy.textContent = "Copiar dirección"), 1500);
+        btnCopy.style.backgroundColor = "#16a34a"; // verde temporal
+        btnCopy.style.transform = "scale(1.03)";
+        setTimeout(() => {
+          btnCopy.textContent = "Copiar dirección";
+          btnCopy.style.backgroundColor = "#6d28d9";
+          btnCopy.style.transform = "scale(1)";
+        }, 1500);
       });
     };
 
