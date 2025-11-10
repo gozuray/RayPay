@@ -12,7 +12,7 @@ let checkInterval = null;
 let currentReference = null;
 
 // 🌐 URL del backend local
-const API_URL = "http://127.0.0.1:3000";
+const API_URL = "https://raypaybackend.onrender.com";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -245,3 +245,62 @@ btn.addEventListener("click", async () => {
     btn.textContent = "Generar QR";
   }
 });
+
+// === 📜 HISTORIAL DE TRANSACCIONES ===
+
+// 1️⃣ Referencias a los nuevos botones
+const btnHistory = document.getElementById("btnHistory");
+const btnDownload = document.getElementById("btnDownload");
+const historyContainer = document.getElementById("historyContainer");
+
+// 2️⃣ Mostrar historial desde backend
+btnHistory.addEventListener("click", async () => {
+  try {
+    const res = await fetch(`${API_URL}/history`);
+    const history = await res.json();
+
+    if (!Array.isArray(history) || history.length === 0) {
+      historyContainer.innerHTML =
+        "<p style='color:#aaa'>No hay transacciones registradas todavía.</p>";
+      return;
+    }
+
+    // Crea tabla HTML con datos básicos
+    let html = `
+      <table style="width:100%; border-collapse:collapse; margin-top:15px;">
+        <tr style="background:#3b0764; color:#fff;">
+          <th style="padding:8px;">Hash</th>
+          <th style="padding:8px;">Monto</th>
+          <th style="padding:8px;">Token</th>
+          <th style="padding:8px;">Fecha</th>
+          <th style="padding:8px;">Hora</th>
+        </tr>
+    `;
+
+    history.forEach((tx) => {
+      html += `
+        <tr style="background:#1e0038; color:#c084fc;">
+          <td style="padding:6px;">${tx.txHash ? tx.txHash.slice(0, 8) + "..." : "N/A"}</td>
+          <td style="padding:6px;">${tx.amount}</td>
+          <td style="padding:6px;">${tx.token}</td>
+          <td style="padding:6px;">${tx.date || "?"}</td>
+          <td style="padding:6px;">${tx.time || "?"}</td>
+        </tr>
+      `;
+    });
+
+    html += "</table>";
+    historyContainer.innerHTML = html;
+  } catch (err) {
+    console.error("Error obteniendo historial:", err);
+    historyContainer.innerHTML =
+      "<p style='color:#f87171'>❌ Error al cargar historial</p>";
+  }
+});
+
+// 3️⃣ Descargar historial CSV
+btnDownload.addEventListener("click", () => {
+  window.open(`${API_URL}/history/download`, "_blank");
+});
+
+historyContainer.style.marginBottom = "40px";
