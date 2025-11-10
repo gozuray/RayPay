@@ -243,6 +243,126 @@ app.get("/history/download", (req, res) => {
 });
 // 🚀 Servidor
 const PORT = process.env.PORT || 3000;
+/**
+ * GET /wallet-history
+ * Query params:
+ *  - limit (opcional, default 100) -> cantidad de firmas a recuperar por página
+ *  - before (opcional) -> signature para paginar (usar como cursor)
+ *
+ * Retorna lista de transacciones parseadas relacionadas con MERCHANT_WALLET.
+ */
+app.get("/wallet-history", async (req, res) => {
+  try {
+    const limit = Math.min(1000, parseInt(req.query.limit || "200", 10)); // máximo 1000
+    const before = req.query.before || undefined;
+    const merchantPubkey = new PublicKey(MERCHANT_WALLET);
+
+    // 1) Obtener firmas (signatures) para la dirección (paginar con `before`)
+    const sigInfos = await connection.getSignaturesForAddress(merchantPubkey, {
+      limit,
+      before,
+    });
+
+    if (!sigInfos || sigInfos.length === 0) {
+      return res.json({ data: [], nextCursor: null });
+    }
+
+    // 2) Pedir las transacciones parseadas en batch
+    const signatures = sigInfos.map((s) => s.signature);
+    const parsedTxsPromises = signatures.map((sig) =>
+      connection.getParsedTransaction(sig, { commitment: "confirmed" })
+    );
+
+    const parsedTxs = await Promise.all(parsedTxsPromises);
+
+    // 3) Extraer información relevante
+    const results = parsedTxs.map((tx, idx) => {
+      const sig = signatures[idx];
+      if (!tx) {
+        return {
+          txHash: sig,
+          slot: sigInfos[idx].slot,
+          status: "unknown",
+        };
+      }
+
+      const blockTime = tx.blockTime ? new Date(tx.blockTime * 1000).toISOString() : null;
+      const slot = tx.slot;
+      const meta = tx.meta || {};
+      const status = meta.err ? "failed" : "confirmed";
+
+      // Intentamos extraer transferencias (SOL y SPL) que afecten al merchant
+      let amount = null;
+      let token = null;
+
+      // 3a) Buscar en pre/post balances (SOL transfers)
+      try {
+        const keys = tx.transaction.message.accountKeys.map((k) => ({
+          pubkey: k.pubkey.toBase58(),
+          signer: k.signer,
+          writable: k.writable,
+        }));
+
+        // Revisa cambios en sol balances
+        if (meta.preBalances && meta.postBalances) {
+          const pre = meta.preBalances;
+          const post = meta.postBalances;
+          for (let i = 0; i < keys.length; i++) {
+            if (keys[i].pubkey === MERCHANT_WALLET) {
+              const diff = post[i] - pre[i];
+              if (diff > 0) {
+                amount = diff / 1e9; // lamports -> SOL
+                token = "SOL";
+              }
+            }
+          }
+        }
+
+        // 3b) Buscar en postTokenBalances (SPL token transfers)
+        if (!amount && meta.postTokenBalances && meta.preTokenBalances) {
+          // compara balances por owner
+          const postToken = meta.postTokenBalances.find((b) => b.owner === MERCHANT_WALLET);
+          const preToken = meta.preTokenBalances.find((b) => b.owner === MERCHANT_WALLET);
+          if (postToken) {
+            const postAmt = parseFloat(postToken.uiTokenAmount.uiAmountString || 0);
+            const preAmt = preToken ? parseFloat(preToken.uiTokenAmount.uiAmountString || 0) : 0;
+            const diff = postAmt - preAmt;
+            if (diff !== 0) {
+              amount = diff;
+              token = postToken.mint || "SPL";
+            }
+          }
+        }
+      } catch (e) {
+        // no bloquear por parsing
+      }
+
+      return {
+        txHash: sig,
+        slot,
+        blockTime,
+        status,
+        amount,
+        token,
+        // devolvemos el parsed tx para debugging si quieres
+        short: {
+          fee: meta.fee,
+          err: meta.err,
+          logMessages: meta.logMessages ? meta.logMessages.slice(0, 5) : undefined,
+        },
+      };
+    });
+
+    // 4) nextCursor: la última firma para paginar (si quieres la siguiente página, envía before=nextCursor)
+    const nextCursor = sigInfos.length > 0 ? sigInfos[sigInfos.length - 1].signature : null;
+
+    res.json({ data: results, nextCursor });
+  } catch (err) {
+    console.error("Error en /wallet-history:", err);
+    res.status(500).json({ error: "Error obteniendo historial de la wallet", details: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Servidor en http://localhost:${PORT} [${CLUSTER}]`);
 });
