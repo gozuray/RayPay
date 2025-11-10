@@ -4,6 +4,12 @@ import { PublicKey, Connection, clusterApiUrl, Keypair } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import dotenv from "dotenv";
+import fs from "fs";
+const HISTORY_FILE = "./payments-history.json";
+
+function saveHistory() {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(global.payments, null, 2));
+}
 
 dotenv.config();
 
@@ -161,11 +167,23 @@ app.get("/confirm/:reference", async (req, res) => {
 
     // Comparar con tolerancia mínima
     if (received >= expectedAmount - 0.00001) {
-      payment.status = "pagado";
-      payment.signature = sigInfo.signature;
-      console.log(`✅ Pago confirmado (${payment.token}): ${received}`);
-      return res.json({ status: "pagado", signature: sigInfo.signature });
-    } else {
+  payment.status = "pagado";
+  payment.signature = sigInfo.signature;
+  payment.confirmedAt = new Date().toISOString();
+  payment.txHash = sigInfo.signature;
+  payment.summary = {
+    token: payment.token,
+    amount: payment.amount,
+    date: new Date().toLocaleDateString(),
+    time: new Date().toLocaleTimeString(),
+  };
+
+  saveHistory(); // ✅ Guardar después de actualizar los datos
+
+  console.log(`✅ Pago confirmado (${payment.token}): ${received}`);
+  return res.json({ status: "pagado", signature: sigInfo.signature });
+}
+ else {
       console.log(
         `⚠️ Monto recibido ${received} no coincide con ${expectedAmount}`
       );
@@ -185,11 +203,41 @@ app.get("/confirm/:reference", async (req, res) => {
 
 // 🧾 Historial
 app.get("/history", (req, res) => {
-  res.json(global.payments);
+  const list = Object.entries(global.payments).map(([ref, p]) => ({
+    reference: ref,
+    status: p.status,
+    amount: p.amount,
+    token: p.token,
+    date: p.summary?.date,
+    time: p.summary?.time,
+    txHash: p.txHash,
+  }));
+  res.json(list);
 });
 
-// 🚀 Servidor
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Servidor en http://localhost:${PORT} [${CLUSTER}]`);
+// Descarga CSV
+app.get("/history/download", (req, res) => {
+  const list = Object.entries(global.payments).map(([ref, p]) => ({
+    Reference: ref,
+    Estado: p.status,
+    Token: p.token,
+    Monto: p.amount,
+    Fecha: p.summary?.date,
+    Hora: p.summary?.time,
+    TxHash: p.txHash,
+  }));
+
+  const csv =
+    "Reference,Estado,Token,Monto,Fecha,Hora,TxHash\n" +
+    list
+      .map((r) =>
+        Object.values(r)
+          .map((v) => `"${v ?? ""}"`)
+          .join(",")
+      )
+      .join("\n");
+
+  res.header("Content-Type", "text/csv");
+  res.attachment("historial.csv");
+  res.send(csv);
 });
