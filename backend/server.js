@@ -17,6 +17,7 @@ app.use(
       "http://localhost:5500", // Live Server alternativa
       "http://127.0.0.1:3000", // backend local
       "http://localhost:3000", // backend local
+      "https://raypay-1.onrender.com",
     ],
     methods: ["GET", "POST", "OPTIONS"],
     preflightContinue: false,
