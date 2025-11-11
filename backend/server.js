@@ -12,9 +12,13 @@ const app = express();
 const HISTORY_FILE = "./payments-history.json";
 const PORT = process.env.PORT || 3000;
 
-// === Función para guardar historial ===
+// === Guardar historial en disco ===
 function saveHistory() {
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(global.payments, null, 2));
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(global.payments, null, 2));
+  } catch (e) {
+    console.error("No se pudo guardar historial:", e.message);
+  }
 }
 
 // === CORS ===
@@ -26,7 +30,7 @@ app.use(
       "http://127.0.0.1:3000",
       "http://localhost:3000",
       "https://raypay-1.onrender.com",
-      "https://raypaybackend.onrender.com", // ✅ tu dominio Render
+      "https://raypaybackend.onrender.com",
     ],
     methods: ["GET", "POST", "OPTIONS"],
     optionsSuccessStatus: 204,
@@ -34,7 +38,7 @@ app.use(
 );
 app.use(express.json());
 
-// === Prueba de conexión ===
+// === Ping ===
 app.get("/", (_req, res) => {
   res.send("✅ RayPay backend activo y operativo.");
 });
@@ -42,8 +46,7 @@ app.get("/", (_req, res) => {
 // === Configuración base ===
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
-if (!MERCHANT_WALLET)
-  throw new Error("❌ Falta MERCHANT_WALLET en archivo .env");
+if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en archivo .env");
 
 const USDC_MINTS = {
   "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -67,7 +70,7 @@ try {
   console.error("⚠️ Error al leer historial:", err);
 }
 
-// === Crear pago ===
+// === Crear pago (QR) ===
 app.post("/create-payment", (req, res) => {
   try {
     let { amount, restaurant, token } = req.body;
@@ -113,7 +116,7 @@ app.post("/create-payment", (req, res) => {
   }
 });
 
-// === Confirmar pago ===
+// === Confirmar pago (con referencia del QR) ===
 app.get("/confirm/:reference", async (req, res) => {
   const { reference } = req.params;
   const payment = global.payments[reference];
@@ -139,8 +142,11 @@ app.get("/confirm/:reference", async (req, res) => {
       const index = keys.indexOf(merchant);
       if (index >= 0) received = (post[index] - pre[index]) / 1e9;
     } else {
-      const postToken = tx.meta.postTokenBalances.find((b) => b.owner === merchant);
-      if (postToken) received = parseFloat(postToken.uiTokenAmount.uiAmountString);
+      const postToken = tx.meta.postTokenBalances?.find((b) => b.owner === merchant);
+      const preToken = tx.meta.preTokenBalances?.find((b) => b.owner === merchant);
+      const postAmount = postToken?.uiTokenAmount?.uiAmount ?? 0;
+      const preAmount = preToken?.uiTokenAmount?.uiAmount ?? 0;
+      received = postAmount - preAmount;
     }
 
     if (received >= expectedAmount - 0.00001) {
@@ -167,7 +173,7 @@ app.get("/confirm/:reference", async (req, res) => {
   }
 });
 
-// === Historial simple ===
+// === Historial (desde archivo) ===
 app.get("/history", (req, res) => {
   const list = Object.entries(global.payments).map(([ref, p]) => ({
     reference: ref,
@@ -202,7 +208,7 @@ app.get("/history/download", (req, res) => {
   res.send(csv);
 });
 
-// === Reconstruir historial desde la blockchain ===
+// === Reconstruir historial emparejando referencias del QR (opcional) ===
 app.get("/rebuild-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
@@ -213,12 +219,12 @@ app.get("/rebuild-history", async (req, res) => {
       const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
       if (!tx?.meta) continue;
 
+      // Recolectar todas las keys usadas por instrucciones (método simple)
       const instructionRefs = [];
-      for (const ix of tx.transaction.message.instructions) {
+      for (const ix of tx.transaction.message.instructions || []) {
         if (ix.accounts?.length) {
           for (const acc of ix.accounts) {
-            const keyIndex = acc;
-            const key = tx.transaction.message.accountKeys[keyIndex];
+            const key = tx.transaction.message.accountKeys[acc];
             if (key?.pubkey) instructionRefs.push(key.pubkey.toBase58());
           }
         }
@@ -227,28 +233,88 @@ app.get("/rebuild-history", async (req, res) => {
       for (const ref of Object.keys(global.payments)) {
         if (instructionRefs.includes(ref)) {
           const amount = global.payments[ref]?.amount || null;
-          const blockTime = tx.blockTime ? new Date(tx.blockTime * 1000) : new Date();
-
+          const blockMs = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
           confirmed.push({
             reference: ref,
             signature: s.signature,
             amount,
             token: global.payments[ref]?.token || "USDC",
-            date: blockTime.toLocaleDateString(),
-            time: blockTime.toLocaleTimeString(),
+            date: new Date(blockMs).toLocaleDateString(),
+            time: new Date(blockMs).toLocaleTimeString(),
             status: "pagado",
           });
         }
       }
     }
 
-    // ✅ Actualizar archivo local si se desea
+    // (opcional) podrías actualizar global.payments aquí si quieres sincronizar
     saveHistory();
 
     console.log(`✅ ${confirmed.length} transacciones confirmadas reconstruidas`);
     res.json({ total: confirmed.length, data: confirmed });
   } catch (err) {
     console.error("Error reconstruyendo historial:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === NUEVO: Historial on-chain sin referencias del QR (/wallet-history) ===
+app.get("/wallet-history", async (req, res) => {
+  try {
+    const merchant = new PublicKey(MERCHANT_WALLET);
+    const limit = Math.min(parseInt(req.query.limit || "100", 10), 1000);
+
+    const sigs = await connection.getSignaturesForAddress(merchant, { limit });
+
+    const rows = [];
+    for (const s of sigs) {
+      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
+      if (!tx?.meta) continue;
+
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const idx = keys.indexOf(merchant.toBase58());
+
+      // === 1) Intentar SOL recibido
+      let solReceived = 0;
+      if (idx >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
+        solReceived = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
+      }
+
+      // === 2) Intentar USDC recibido (delta del token balance)
+      const usdcMint = USDC_MINTS[CLUSTER];
+      const preToken = tx.meta.preTokenBalances?.find(
+        (b) => b.owner === merchant.toBase58() && b.mint === usdcMint
+      );
+      const postToken = tx.meta.postTokenBalances?.find(
+        (b) => b.owner === merchant.toBase58() && b.mint === usdcMint
+      );
+      const preAmt = preToken?.uiTokenAmount?.uiAmount ?? 0;
+      const postAmt = postToken?.uiTokenAmount?.uiAmount ?? 0;
+      const usdcReceived = postAmt - preAmt;
+
+      const blockMs = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+
+      // Priorizar registro de monto positivo
+      if (usdcReceived > 0) {
+        rows.push({
+          txHash: s.signature,
+          amount: Number(usdcReceived.toFixed(6)),
+          token: "USDC",
+          blockTime: blockMs,
+        });
+      } else if (solReceived > 0) {
+        rows.push({
+          txHash: s.signature,
+          amount: Number(solReceived.toFixed(9)),
+          token: "SOL",
+          blockTime: blockMs,
+        });
+      }
+    }
+
+    res.json({ data: rows }); // <<-- tu frontend espera { data: [...] }
+  } catch (err) {
+    console.error("Error en /wallet-history:", err);
     res.status(500).json({ error: err.message });
   }
 });
