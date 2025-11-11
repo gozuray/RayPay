@@ -11,13 +11,13 @@ const advanced = document.getElementById("advanced");
 let checkInterval = null;
 let currentReference = null;
 
-// 🌐 URL del backend local
+// 🌐 URL del backend (ajusta según tu despliegue)
 const API_URL = "https://raypaybackend.onrender.com";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
 
-// === Mostrar / ocultar configuración avanzada con animación y rotación ===
+// === Mostrar / ocultar configuración avanzada ===
 toggleAdvanced.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
@@ -51,7 +51,7 @@ function clampDecimals(valueStr, decimals) {
   return v;
 }
 
-// === Limitar input en tiempo real: SOL=5, USDC=3 ===
+// === Limitar input en tiempo real ===
 amountInput.addEventListener("input", (e) => {
   const token = tokenSelect ? tokenSelect.value : "USDC";
   const maxDecimals = token === "SOL" ? 5 : 3;
@@ -63,7 +63,7 @@ amountInput.addEventListener("input", (e) => {
   e.target.value = value;
 });
 
-// === Al cambiar token, revalida decimales visibles ===
+// === Cambiar decimales visibles al cambiar token ===
 if (tokenSelect) {
   tokenSelect.addEventListener("change", () => {
     const token = tokenSelect.value;
@@ -216,7 +216,7 @@ btn.addEventListener("click", async () => {
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
     document.getElementById("walletInfo").style.display = "block";
 
-    // === Copiar dirección sin mover el botón ===
+    // === Copiar dirección ===
     btnCopy.onclick = () => {
       navigator.clipboard.writeText(walletAddress).then(() => {
         btnCopy.textContent = "Copiado ✅";
@@ -247,17 +247,15 @@ btn.addEventListener("click", async () => {
 });
 
 // === 📜 HISTORIAL DE TRANSACCIONES ===
-
-// 1️⃣ Referencias a los nuevos botones
 const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
 
-// 2️⃣ Mostrar historial desde backend
 btnHistory.addEventListener("click", async () => {
   try {
     const res = await fetch(`${API_URL}/rebuild-history`);
-    const history = await res.json();
+    const json = await res.json();
+    const history = json.data || json || [];
 
     if (!Array.isArray(history) || history.length === 0) {
       historyContainer.innerHTML =
@@ -265,7 +263,6 @@ btnHistory.addEventListener("click", async () => {
       return;
     }
 
-    // Crea tabla HTML con datos básicos
     let html = `
       <table style="width:100%; border-collapse:collapse; margin-top:15px;">
         <tr style="background:#3b0764; color:#fff;">
@@ -278,13 +275,14 @@ btnHistory.addEventListener("click", async () => {
     `;
 
     history.forEach((tx) => {
+      const hash = tx.signature || tx.txHash || "";
       html += `
         <tr style="background:#1e0038; color:#c084fc;">
-          <td style="padding:6px;">${tx.txHash ? tx.txHash.slice(0, 8) + "..." : "N/A"}</td>
-          <td style="padding:6px;">${tx.amount}</td>
-          <td style="padding:6px;">${tx.token}</td>
-          <td style="padding:6px;">${tx.date || "?"}</td>
-          <td style="padding:6px;">${tx.time || "?"}</td>
+          <td style="padding:6px;">${hash ? hash.slice(0, 8) + "..." : "N/A"}</td>
+          <td style="padding:6px;">${tx.amount ?? "-"}</td>
+          <td style="padding:6px;">${tx.token ?? "?"}</td>
+          <td style="padding:6px;">${tx.date ?? "?"}</td>
+          <td style="padding:6px;">${tx.time ?? "?"}</td>
         </tr>
       `;
     });
@@ -298,7 +296,7 @@ btnHistory.addEventListener("click", async () => {
   }
 });
 
-// 3️⃣ Descargar historial CSV
+// Descargar historial CSV
 btnDownload.addEventListener("click", () => {
   window.open(`${API_URL}/history/download`, "_blank");
 });
