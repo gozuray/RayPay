@@ -14,7 +14,7 @@ let currentReference = null;
 // 🌐 URL del backend (permite override con ?api=https://mi-backend)
 const API_URL =
   new URLSearchParams(location.search).get("api") ||
-  "https://raypaybackend.onrender.com";
+  "https://raypay-backend.onrender.com";  // ✅ BUENO (con guión)
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
