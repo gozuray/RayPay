@@ -53,7 +53,12 @@ const USDC_MINTS = {
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
-const connection = new Connection(clusterApiUrl(CLUSTER));
+// RPC dedicado opcional: .env -> RPC_URL=https://<tu-proveedor-rpc>
+const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
+const connection = new Connection(RPC_URL, {
+  commitment: "confirmed",
+});
+
 const toBN = (v) => new BigNumber(String(v));
 
 // === Cargar historial guardado ===
@@ -212,51 +217,65 @@ app.get("/history/download", (req, res) => {
 app.get("/rebuild-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
-    const sigs = await connection.getSignaturesForAddress(merchant, { limit: 1000 });
+    const sigs = await connection.getSignaturesForAddress(merchant, { limit: 120 });
+
+    const refs = new Set(Object.keys(global.payments || {}));
+    if (!refs.size) return res.json({ total: 0, data: [] });
+
+    const chunks = [];
+    for (let i = 0; i < sigs.length; i += 20) {
+      chunks.push(sigs.slice(i, i + 20).map(s => s.signature));
+    }
+
     const confirmed = [];
+    for (const batch of chunks) {
+      const txs = await connection.getParsedTransactions(batch, { commitment: "confirmed" });
+      for (const tx of txs || []) {
+        if (!tx?.meta) continue;
 
-    for (const s of sigs) {
-      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
-      if (!tx?.meta) continue;
+        const used = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+        // ¿Alguna ref de tus QRs aparece en las cuentas usadas?
+        for (const ref of refs) {
+          if (used.includes(ref)) {
+            const p = global.payments[ref] || {};
+            const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+            const sig = tx.transaction.signatures?.[0];
 
-      // Recolectar todas las keys usadas por instrucciones (método simple)
-      const instructionRefs = [];
-      for (const ix of tx.transaction.message.instructions || []) {
-        if (ix.accounts?.length) {
-          for (const acc of ix.accounts) {
-            const key = tx.transaction.message.accountKeys[acc];
-            if (key?.pubkey) instructionRefs.push(key.pubkey.toBase58());
+            confirmed.push({
+              reference: ref,
+              signature: sig,
+              amount: p.amount ?? null,
+              token: p.token ?? "USDC",
+              blockTime: ms,
+              date: new Date(ms).toLocaleDateString(),
+              time: new Date(ms).toLocaleTimeString(),
+              status: "pagado",
+            });
+
+            // Sincroniza tu archivo local
+            global.payments[ref] = {
+              ...p,
+              status: "pagado",
+              txHash: sig,
+              confirmedAt: new Date(ms).toISOString(),
+            };
           }
-        }
-      }
-
-      for (const ref of Object.keys(global.payments)) {
-        if (instructionRefs.includes(ref)) {
-          const amount = global.payments[ref]?.amount || null;
-          const blockMs = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
-          confirmed.push({
-            reference: ref,
-            signature: s.signature,
-            amount,
-            token: global.payments[ref]?.token || "USDC",
-            date: new Date(blockMs).toLocaleDateString(),
-            time: new Date(blockMs).toLocaleTimeString(),
-            status: "pagado",
-          });
         }
       }
     }
 
-    // (opcional) podrías actualizar global.payments aquí si quieres sincronizar
     saveHistory();
-
-    console.log(`✅ ${confirmed.length} transacciones confirmadas reconstruidas`);
     res.json({ total: confirmed.length, data: confirmed });
   } catch (err) {
-    console.error("Error reconstruyendo historial:", err);
+    if (String(err?.message || "").includes("Too Many Requests") || String(err).includes("429")) {
+      console.warn("Rate-limited en /rebuild-history, devuelvo vacío.");
+      return res.json({ total: 0, data: [], meta: { warning: "rate_limited_rpc" } });
+    }
+    console.error("Error en /rebuild-history:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // === NUEVO: Historial on-chain sin referencias del QR (/wallet-history) ===
 app.get("/wallet-history", async (req, res) => {
@@ -384,50 +403,71 @@ app.get("/rebuild-history", async (req, res) => {
 });
 
 // --- WALLET HISTORY: últimas entradas de SOL/USDC hacia tu wallet ---
+// --- WALLET HISTORY (batch + tolerante a rate-limit) ---
 app.get("/wallet-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
-    const limit = Math.min(parseInt(req.query.limit || "100", 10), 1000);
+    const limit = Math.min(parseInt(req.query.limit || "60", 10), 200); // prudente
     const usdcMint = USDC_MINTS[CLUSTER];
 
+    // 1) Firmas (una sola llamada)
     const sigs = await connection.getSignaturesForAddress(merchant, { limit });
+    if (!sigs.length) return res.json({ data: [], meta: { note: "sin-firmas" } });
+
+    // 2) Batch de transacciones (reduce llamadas): 20 por lote
+    const chunks = [];
+    for (let i = 0; i < sigs.length; i += 20) {
+      chunks.push(sigs.slice(i, i + 20).map(s => s.signature));
+    }
+
     const rows = [];
+    for (const batch of chunks) {
+      // getParsedTransactions acepta array
+      const txs = await connection.getParsedTransactions(batch, { commitment: "confirmed" });
 
-    for (const s of sigs) {
-      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
-      if (!tx?.meta) continue;
+      for (const tx of txs || []) {
+        if (!tx?.meta) continue;
 
-      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
-      const idx = keys.indexOf(merchant.toBase58());
+        const keys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+        const idx = keys.indexOf(merchant.toBase58());
 
-      // SOL recibido
-      let solReceived = 0;
-      if (idx >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
-        solReceived = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
-      }
+        // SOL recibido
+        let solReceived = 0;
+        if (idx >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
+          solReceived = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
+        }
 
-      // USDC recibido
-      const preToken = tx.meta.preTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
-      const postToken = tx.meta.postTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
-      const preAmt = preToken?.uiTokenAmount?.uiAmount ?? 0;
-      const postAmt = postToken?.uiTokenAmount?.uiAmount ?? 0;
-      const usdcReceived = postAmt - preAmt;
+        // USDC recibido (delta token)
+        const preT = tx.meta.preTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
+        const postT = tx.meta.postTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
+        const preAmt = preT?.uiTokenAmount?.uiAmount ?? 0;
+        const postAmt = postT?.uiTokenAmount?.uiAmount ?? 0;
+        const usdcReceived = postAmt - preAmt;
 
-      const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+        const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+        const sig = tx.transaction.signatures?.[0];
 
-      if (usdcReceived > 0) {
-        rows.push({ txHash: s.signature, amount: Number(usdcReceived.toFixed(6)), token: "USDC", blockTime: ms });
-      } else if (solReceived > 0) {
-        rows.push({ txHash: s.signature, amount: Number(solReceived.toFixed(9)), token: "SOL", blockTime: ms });
+        if (usdcReceived > 0) {
+          rows.push({ txHash: sig, amount: Number(usdcReceived.toFixed(6)), token: "USDC", blockTime: ms });
+        } else if (solReceived > 0) {
+          rows.push({ txHash: sig, amount: Number(solReceived.toFixed(9)), token: "SOL", blockTime: ms });
+        }
       }
     }
 
-    res.json({ data: rows });
+    return res.json({ data: rows });
   } catch (err) {
+    // Si el RPC tiró 429, no devolvemos 500 (que rompe tu UI).
+    // Devolvemos 200 con data vacía y meta para que tu frontend siga y muestre el fallback.
+    if (String(err?.message || "").includes("Too Many Requests") || String(err).includes("429")) {
+      console.warn("Rate-limited por el RPC. Devuelvo data vacía para no romper el flujo.");
+      return res.json({ data: [], meta: { warning: "rate_limited_rpc" } });
+    }
     console.error("Error en /wallet-history:", err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
+
 
 // === Iniciar servidor ===
 app.listen(PORT, () => {
