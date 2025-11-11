@@ -318,6 +318,116 @@ app.get("/wallet-history", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// --- Healthcheck y diagnóstico de rutas ---
+app.get("/__health", (_req, res) => {
+  res.json({
+    ok: true,
+    cluster: CLUSTER,
+    merchant: MERCHANT_WALLET,
+    now: new Date().toISOString(),
+  });
+});
+app.get("/routes", (_req, res) => {
+  const routes = [];
+  app._router.stack.forEach((m) => {
+    if (m.route && m.route.path) {
+      routes.push({ method: Object.keys(m.route.methods)[0].toUpperCase(), path: m.route.path });
+    }
+  });
+  res.json({ routes });
+});
+
+// --- REBUILD HISTORY: reconstruye usando transacciones on-chain ---
+app.get("/rebuild-history", async (req, res) => {
+  try {
+    const merchant = new PublicKey(MERCHANT_WALLET);
+    const sigs = await connection.getSignaturesForAddress(merchant, { limit: 200 });
+    const confirmed = [];
+
+    for (const s of sigs) {
+      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
+      if (!tx?.meta) continue;
+
+      // Buscar referencias que coincidan con las que guardaste al generar QR
+      const usedKeys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      for (const ref of Object.keys(global.payments || {})) {
+        if (usedKeys.includes(ref)) {
+          const p = global.payments[ref];
+          const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+          confirmed.push({
+            reference: ref,
+            signature: s.signature,
+            amount: p?.amount ?? null,
+            token: p?.token ?? "USDC",
+            blockTime: ms,
+            date: new Date(ms).toLocaleDateString(),
+            time: new Date(ms).toLocaleTimeString(),
+            status: "pagado",
+          });
+          // Marca pagado en tu archivo local
+          global.payments[ref] = {
+            ...p,
+            status: "pagado",
+            txHash: s.signature,
+            confirmedAt: new Date(ms).toISOString(),
+          };
+        }
+      }
+    }
+
+    saveHistory();
+    res.json({ total: confirmed.length, data: confirmed });
+  } catch (err) {
+    console.error("Error en /rebuild-history:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- WALLET HISTORY: últimas entradas de SOL/USDC hacia tu wallet ---
+app.get("/wallet-history", async (req, res) => {
+  try {
+    const merchant = new PublicKey(MERCHANT_WALLET);
+    const limit = Math.min(parseInt(req.query.limit || "100", 10), 1000);
+    const usdcMint = USDC_MINTS[CLUSTER];
+
+    const sigs = await connection.getSignaturesForAddress(merchant, { limit });
+    const rows = [];
+
+    for (const s of sigs) {
+      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
+      if (!tx?.meta) continue;
+
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const idx = keys.indexOf(merchant.toBase58());
+
+      // SOL recibido
+      let solReceived = 0;
+      if (idx >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
+        solReceived = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
+      }
+
+      // USDC recibido
+      const preToken = tx.meta.preTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
+      const postToken = tx.meta.postTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
+      const preAmt = preToken?.uiTokenAmount?.uiAmount ?? 0;
+      const postAmt = postToken?.uiTokenAmount?.uiAmount ?? 0;
+      const usdcReceived = postAmt - preAmt;
+
+      const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+
+      if (usdcReceived > 0) {
+        rows.push({ txHash: s.signature, amount: Number(usdcReceived.toFixed(6)), token: "USDC", blockTime: ms });
+      } else if (solReceived > 0) {
+        rows.push({ txHash: s.signature, amount: Number(solReceived.toFixed(9)), token: "SOL", blockTime: ms });
+      }
+    }
+
+    res.json({ data: rows });
+  } catch (err) {
+    console.error("Error en /wallet-history:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // === Iniciar servidor ===
 app.listen(PORT, () => {
