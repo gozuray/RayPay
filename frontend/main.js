@@ -256,7 +256,7 @@ const historyContainer = document.getElementById("historyContainer");
 // 2️⃣ Mostrar historial desde backend
 btnHistory.addEventListener("click", async () => {
   try {
-    const res = await fetch(`${API_URL}/history`);
+    const res = await fetch(`${API_URL}/rebuild-history`);
     const history = await res.json();
 
     if (!Array.isArray(history) || history.length === 0) {
