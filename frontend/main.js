@@ -103,14 +103,24 @@ async function safeJsonFetch(url, options) {
     const msg = text || `HTTP ${res.status}`;
     throw new Error(`Request failed: ${msg}`);
   }
-  // intenta parsear json; si no es json válido lanza
   try {
     return await res.json();
-  } catch (e) {
+  } catch {
     const text = await (async () => {
       try { return await res.text(); } catch { return ""; }
     })();
     throw new Error(`Respuesta no-JSON del backend: ${text.slice(0, 200)}`);
+  }
+}
+
+// === Helper: intenta una URL y no rompe el flujo si falla ===
+async function tryJson(url, options) {
+  try {
+    const data = await safeJsonFetch(url, options);
+    return { ok: true, data };
+  } catch (err) {
+    console.warn(`Falló ${url}:`, err.message);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -136,7 +146,6 @@ async function checkPaymentStatus(reference) {
 
 // === Generar QR y crear nuevo pago ===
 btn.addEventListener("click", async () => {
-  // Reiniciar estado anterior
   if (checkInterval) {
     clearInterval(checkInterval);
     checkInterval = null;
@@ -180,7 +189,6 @@ btn.addEventListener("click", async () => {
       return;
     }
 
-    // === Generar QR con suavizado ===
     const qrSize = 320;
     new QRCode(qrContainer, {
       text: data.solana_url,
@@ -191,11 +199,9 @@ btn.addEventListener("click", async () => {
       correctLevel: QRCode.CorrectLevel.M,
     });
 
-    // === Efecto de neblina alrededor del QR ===
     qrContainer.classList.remove("confirmed");
     qrContainer.classList.add("qr-glow");
 
-    // 🔧 Mejora visual del QR
     const qrCanvas = qrContainer.querySelector("canvas");
     if (qrCanvas) {
       const ctx = qrCanvas.getContext("2d");
@@ -212,7 +218,6 @@ btn.addEventListener("click", async () => {
       }, 50);
     }
 
-    // === Mostrar dirección resumida ===
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
     const shortAddr =
@@ -223,7 +228,6 @@ btn.addEventListener("click", async () => {
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
     document.getElementById("walletInfo").style.display = "block";
 
-    // === Copiar dirección ===
     btnCopy.onclick = () => {
       navigator.clipboard.writeText(walletAddress).then(() => {
         btnCopy.textContent = "Copiado ✅";
@@ -288,44 +292,57 @@ function renderHistoryTable(history) {
 
 btnHistory.addEventListener("click", async () => {
   historyContainer.innerHTML = "<p style='color:#aaa'>Cargando historial...</p>";
-  try {
-    // 1) Preferimos /rebuild-history (usa referencias del QR)
-    let json = await safeJsonFetch(`${API_URL}/rebuild-history`);
-    let history = json?.data || [];
 
-    // 2) Si vacío, intentamos /history (persistido local)
-    if (!Array.isArray(history) || history.length === 0) {
-      json = await safeJsonFetch(`${API_URL}/history`);
-      if (Array.isArray(json) && json.length > 0) {
-        history = json;
-      }
+  // Intentos secuenciales con fallbacks reales
+  const attempts = [];
+  let history = [];
+
+  // 1) /rebuild-history (usa referencias del QR)
+  let r1 = await tryJson(`${API_URL}/rebuild-history`);
+  attempts.push({ endpoint: "/rebuild-history", ok: r1.ok, error: r1.error });
+  if (r1.ok) {
+    const data = r1.data?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      history = data;
     }
+  }
 
-    // 3) Si aún vacío, probamos on-chain sin refs: /wallet-history
-    if (!Array.isArray(history) || history.length === 0) {
-      json = await safeJsonFetch(`${API_URL}/wallet-history?limit=100`);
-      if (Array.isArray(json?.data) && json.data.length > 0) {
-        history = json.data.map((r) => ({
-          txHash: r.txHash,
-          amount: r.amount,
-          token: r.token,
-          date: r.blockTime ? new Date(r.blockTime).toLocaleDateString() : "",
-          time: r.blockTime ? new Date(r.blockTime).toLocaleTimeString() : "",
-        }));
-      }
+  // 2) /history (persistencia local)
+  if (history.length === 0) {
+    let r2 = await tryJson(`${API_URL}/history`);
+    attempts.push({ endpoint: "/history", ok: r2.ok, error: r2.error });
+    if (r2.ok && Array.isArray(r2.data) && r2.data.length > 0) {
+      history = r2.data;
     }
+  }
 
-    if (!Array.isArray(history) || history.length === 0) {
-      historyContainer.innerHTML =
-        "<p style='color:#aaa'>No hay transacciones registradas todavía.</p>";
-      return;
+  // 3) /wallet-history (on-chain sin refs a QR)
+  if (history.length === 0) {
+    let r3 = await tryJson(`${API_URL}/wallet-history?limit=100`);
+    attempts.push({ endpoint: "/wallet-history", ok: r3.ok, error: r3.error });
+    if (r3.ok && Array.isArray(r3.data?.data) && r3.data.data.length > 0) {
+      history = r3.data.data.map((r) => ({
+        txHash: r.txHash,
+        amount: r.amount,
+        token: r.token,
+        date: r.blockTime ? new Date(r.blockTime).toLocaleDateString() : "",
+        time: r.blockTime ? new Date(r.blockTime).toLocaleTimeString() : "",
+      }));
     }
+  }
 
+  if (history.length > 0) {
     renderHistoryTable(history);
-  } catch (err) {
-    console.error("Error obteniendo historial:", err);
+  } else {
+    // Construir mensaje entendible con lo que falló
+    const lines = attempts.map(a =>
+      `${a.endpoint}: ${a.ok ? "ok" : `error - ${a.error || "desconocido"}`}`
+    ).join("<br>");
     historyContainer.innerHTML =
-      `<p style='color:#f87171'>❌ Error al cargar historial:<br>${err.message}</p>`;
+      `<p style='color:#aaa'>No hay transacciones o los endpoints no están disponibles.</p>
+       <p style='color:#f87171; margin-top:8px'>Diagnóstico:</p>
+       <div style='font-size:0.9rem; color:#fca5a5'>${lines}</div>
+       <p style='color:#9ca3af; margin-top:8px'>Verifica que tu <b>API_URL</b> apunte al backend correcto (puedes probar con <code>?api=http://localhost:3000</code>).</p>`;
   }
 });
 
