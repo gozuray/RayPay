@@ -53,6 +53,20 @@ const connection = new Connection(clusterApiUrl(CLUSTER));
 
 // 🧾 Historial en memoria
 global.payments = {};
+// 🔁 Cargar historial guardado si existe
+try {
+  if (fs.existsSync(HISTORY_FILE)) {
+    const data = fs.readFileSync(HISTORY_FILE, "utf8");
+    global.payments = JSON.parse(data);
+    console.log(`📂 Historial cargado: ${Object.keys(global.payments).length} registros`);
+  } else {
+    console.log("ℹ️ No hay historial previo, iniciando nuevo archivo.");
+  }
+} catch (err) {
+  console.error("⚠️ Error al leer historial:", err);
+  global.payments = {};
+}
+
 
 const toBN = (v) => new BigNumber(String(v));
 
