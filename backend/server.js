@@ -30,7 +30,7 @@ app.use(
       "http://127.0.0.1:3000",
       "http://localhost:3000",
       "https://raypay-1.onrender.com",
-      "https://raypaybackend.onrender.com",
+      "https://raypay-backend.onrender.com",
     ],
     methods: ["GET", "POST", "OPTIONS"],
     optionsSuccessStatus: 204,
@@ -48,9 +48,14 @@ const USDC_MINTS = {
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
+// 🔥 RPC con configuración optimizada
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
 const connection = new Connection(RPC_URL, {
   commitment: "confirmed",
+  // ⚡ Configuración para reducir llamadas
+  httpHeaders: {
+    "Content-Type": "application/json",
+  },
 });
 
 const toBN = (v) => new BigNumber(String(v));
@@ -70,15 +75,13 @@ try {
 }
 
 // ============================================
-// 🔹 TODAS LAS RUTAS DEFINIDAS AQUÍ
+// 🔹 RUTAS
 // ============================================
 
-// === Ping / Home ===
 app.get("/", (_req, res) => {
   res.send("✅ RayPay backend activo y operativo.");
 });
 
-// === Healthcheck ===
 app.get("/__health", (_req, res) => {
   res.json({
     ok: true,
@@ -88,7 +91,6 @@ app.get("/__health", (_req, res) => {
   });
 });
 
-// === Listar rutas disponibles ===
 app.get("/routes", (_req, res) => {
   const routes = [];
   app._router.stack.forEach((m) => {
@@ -240,70 +242,50 @@ app.get("/history/download", (req, res) => {
   res.send(csv);
 });
 
-// === REBUILD HISTORY ===
+// === REBUILD HISTORY (desactivado por defecto para evitar 429) ===
 app.get("/rebuild-history", async (req, res) => {
-  try {
-    const merchant = new PublicKey(MERCHANT_WALLET);
-    const sigs = await connection.getSignaturesForAddress(merchant, { limit: 200 });
-    const confirmed = [];
-
-    for (const s of sigs) {
-      const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
-      if (!tx?.meta) continue;
-
-      const usedKeys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
-      for (const ref of Object.keys(global.payments || {})) {
-        if (usedKeys.includes(ref)) {
-          const p = global.payments[ref];
-          const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
-          confirmed.push({
-            reference: ref,
-            signature: s.signature,
-            amount: p?.amount ?? null,
-            token: p?.token ?? "USDC",
-            blockTime: ms,
-            date: new Date(ms).toLocaleDateString(),
-            time: new Date(ms).toLocaleTimeString(),
-            status: "pagado",
-          });
-          
-          global.payments[ref] = {
-            ...p,
-            status: "pagado",
-            txHash: s.signature,
-            confirmedAt: new Date(ms).toISOString(),
-          };
-        }
-      }
-    }
-
-    saveHistory();
-    res.json({ total: confirmed.length, data: confirmed });
-  } catch (err) {
-    console.error("Error en /rebuild-history:", err);
-    res.status(500).json({ error: err.message });
-  }
+  // ⚠️ Esta ruta hace MUCHAS llamadas al RPC
+  // Solo úsala si tienes un RPC premium (Helius/QuickNode pagado)
+  res.status(503).json({ 
+    error: "Endpoint desactivado temporalmente",
+    reason: "Causa muchos errores 429 en RPC gratuito",
+    suggestion: "Usa /wallet-history con limit bajo o migra a base de datos"
+  });
 });
 
-// === WALLET HISTORY (optimizado) ===
+// === WALLET HISTORY (optimizado y con límite bajo) ===
 app.get("/wallet-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
-    const limit = Math.min(parseInt(req.query.limit || "60", 10), 200);
+    // 🎯 Límite MUY bajo para evitar 429
+    const limit = Math.min(parseInt(req.query.limit || "15", 10), 30);
     const usdcMint = USDC_MINTS[CLUSTER];
 
+    console.log(`⏳ Consultando últimas ${limit} transacciones...`);
+
+    // 1️⃣ Obtener firmas (1 llamada)
     const sigs = await connection.getSignaturesForAddress(merchant, { limit });
     if (!sigs.length) return res.json({ data: [], meta: { note: "sin-firmas" } });
 
-    // Procesar en lotes de 20
+    // 2️⃣ Procesar en lotes pequeños de 10 (en vez de 20)
     const chunks = [];
-    for (let i = 0; i < sigs.length; i += 20) {
-      chunks.push(sigs.slice(i, i + 20).map(s => s.signature));
+    for (let i = 0; i < sigs.length; i += 10) {
+      chunks.push(sigs.slice(i, i + 10).map(s => s.signature));
     }
 
     const rows = [];
-    for (const batch of chunks) {
-      const txs = await connection.getParsedTransactions(batch, { commitment: "confirmed" });
+    for (const [index, batch] of chunks.entries()) {
+      console.log(`📦 Procesando lote ${index + 1}/${chunks.length}...`);
+      
+      // ⏱️ Pequeña pausa entre lotes para no saturar el RPC
+      if (index > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      const txs = await connection.getParsedTransactions(batch, { 
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0 
+      });
 
       for (const tx of txs || []) {
         if (!tx?.meta) continue;
@@ -345,22 +327,33 @@ app.get("/wallet-history", async (req, res) => {
       }
     }
 
-    return res.json({ data: rows });
+    console.log(`✅ Encontradas ${rows.length} transacciones`);
+    return res.json({ data: rows, meta: { processed: limit } });
+
   } catch (err) {
-    // Manejo especial de rate limiting
-    if (String(err?.message || "").includes("Too Many Requests") || String(err).includes("429")) {
-      console.warn("Rate-limited por el RPC. Devuelvo data vacía para no romper el flujo.");
-      return res.json({ data: [], meta: { warning: "rate_limited_rpc" } });
+    // Manejo especial de 429
+    if (String(err?.message || "").includes("Too Many Requests") || 
+        String(err?.message || "").includes("429")) {
+      console.warn("⚠️ Rate-limited por el RPC. Devuelvo data vacía.");
+      return res.json({ 
+        data: [], 
+        meta: { 
+          warning: "rate_limited_rpc",
+          suggestion: "Reduce el límite o usa un RPC premium"
+        } 
+      });
     }
+    
     console.error("Error en /wallet-history:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 // ============================================
-// 🚀 INICIAR SERVIDOR (al final)
+// 🚀 INICIAR SERVIDOR
 // ============================================
 app.listen(PORT, () => {
   console.log(`✅ Servidor RayPay activo en http://localhost:${PORT} [${CLUSTER}]`);
-  console.log(`📍 Rutas disponibles: /, /routes, /create-payment, /confirm/:ref, /history, /rebuild-history, /wallet-history`);
+  console.log(`📍 Rutas: /, /create-payment, /confirm/:ref, /history, /wallet-history`);
+  console.log(`⚠️ /rebuild-history desactivado (causa errores 429)`);
 });

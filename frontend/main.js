@@ -11,10 +11,10 @@ const advanced = document.getElementById("advanced");
 let checkInterval = null;
 let currentReference = null;
 
-// 🌐 URL del backend (permite override con ?api=https://mi-backend)
+// 🌐 URL del backend
 const API_URL =
   new URLSearchParams(location.search).get("api") ||
-  "https://raypay-backend.onrender.com";  // ✅ BUENO (con guión)
+  "https://raypay-backend.onrender.com";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -34,7 +34,6 @@ toggleAdvanced.addEventListener("click", (e) => {
   }
 });
 
-// Evita que el foco “consuma” el primer clic
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
 // === Función auxiliar: recorta decimales según token ===
@@ -95,7 +94,7 @@ function showPaymentStatus(msg) {
   statusEl.textContent = msg;
 }
 
-// === Utilidad fetch robusta con error legible ===
+// === Utilidad fetch robusta ===
 async function safeJsonFetch(url, options) {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -113,7 +112,7 @@ async function safeJsonFetch(url, options) {
   }
 }
 
-// === Helper: intenta una URL y no rompe el flujo si falla ===
+// === Helper: intenta una URL ===
 async function tryJson(url, options) {
   try {
     const data = await safeJsonFetch(url, options);
@@ -124,14 +123,14 @@ async function tryJson(url, options) {
   }
 }
 
-// === Consultar estado del pago (polling) ===
+// === Consultar estado del pago ===
 async function checkPaymentStatus(reference) {
   if (!reference) return;
   try {
     const data = await safeJsonFetch(`${API_URL}/confirm/${reference}`);
     if (data.status === "pagado") {
       showPaymentStatus(`✅ Pago confirmado (${String(data.signature).slice(0, 8)}...)`);
-      qrContainer.classList.add("confirmed"); // 💚 cambia niebla a verde
+      qrContainer.classList.add("confirmed");
       ding.play();
       clearInterval(checkInterval);
       checkInterval = null;
@@ -144,7 +143,7 @@ async function checkPaymentStatus(reference) {
   }
 }
 
-// === Generar QR y crear nuevo pago ===
+// === Generar QR ===
 btn.addEventListener("click", async () => {
   if (checkInterval) {
     clearInterval(checkInterval);
@@ -257,96 +256,153 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === 📜 HISTORIAL DE TRANSACCIONES ===
+// === 📜 HISTORIAL DE TRANSACCIONES (UI MEJORADA) ===
 const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
 
-// helper: pintar tabla
+// 🎨 Helper: pintar tabla responsive
 function renderHistoryTable(history) {
   let html = `
-    <table style="width:100%; border-collapse:collapse; margin-top:15px;">
-      <tr style="background:#3b0764; color:#fff;">
-        <th style="padding:8px;">Hash</th>
-        <th style="padding:8px;">Monto</th>
-        <th style="padding:8px;">Token</th>
-        <th style="padding:8px;">Fecha</th>
-        <th style="padding:8px;">Hora</th>
-      </tr>
+    <div style="
+      width: 100%; 
+      overflow-x: auto; 
+      margin-top: 15px;
+      border-radius: 8px;
+      background: #1e0038;
+      padding: 10px;
+      box-sizing: border-box;
+    ">
+      <table style="
+        width: 100%; 
+        min-width: 500px;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      ">
+        <thead>
+          <tr style="background: #3b0764; color: #fff;">
+            <th style="padding: 10px 8px; text-align: left; white-space: nowrap;">Hash</th>
+            <th style="padding: 10px 8px; text-align: right;">Monto</th>
+            <th style="padding: 10px 8px; text-align: center;">Token</th>
+            <th style="padding: 10px 8px; text-align: center; white-space: nowrap;">Fecha</th>
+            <th style="padding: 10px 8px; text-align: center; white-space: nowrap;">Hora</th>
+          </tr>
+        </thead>
+        <tbody>
   `;
-  history.forEach((tx) => {
+  
+  history.forEach((tx, index) => {
     const hash = tx.signature || tx.txHash || "";
+    const bgColor = index % 2 === 0 ? "#1e0038" : "#2a0048";
+    
     html += `
-      <tr style="background:#1e0038; color:#c084fc;">
-        <td style="padding:6px;">${hash ? hash.slice(0, 8) + "..." : "N/A"}</td>
-        <td style="padding:6px;">${tx.amount ?? "-"}</td>
-        <td style="padding:6px;">${tx.token ?? "?"}</td>
-        <td style="padding:6px;">${tx.date ?? "?"}</td>
-        <td style="padding:6px;">${tx.time ?? "?"}</td>
+      <tr style="
+        background: ${bgColor}; 
+        color: #c084fc;
+        transition: background 0.2s;
+      " 
+      onmouseover="this.style.background='#3b0764'" 
+      onmouseout="this.style.background='${bgColor}'">
+        <td style="padding: 8px; font-family: monospace; font-size: 0.8rem;">
+          ${hash ? hash.slice(0, 8) + "..." : "N/A"}
+        </td>
+        <td style="padding: 8px; text-align: right; font-weight: 600;">
+          ${tx.amount ?? "-"}
+        </td>
+        <td style="padding: 8px; text-align: center;">
+          <span style="
+            background: ${tx.token === 'SOL' ? '#14f195' : '#c084fc'};
+            color: #0a0018;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.75rem;
+          ">${tx.token ?? "?"}</span>
+        </td>
+        <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
+          ${tx.date ?? "?"}
+        </td>
+        <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
+          ${tx.time ?? "?"}
+        </td>
       </tr>
     `;
   });
-  html += "</table>";
+  
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+  
   historyContainer.innerHTML = html;
 }
 
 btnHistory.addEventListener("click", async () => {
-  historyContainer.innerHTML = "<p style='color:#aaa'>Cargando historial...</p>";
+  historyContainer.innerHTML = "<p style='color:#aaa; padding: 20px;'>🔄 Cargando historial...</p>";
 
-  // Intentos secuenciales con fallbacks reales
-  const attempts = [];
   let history = [];
 
-  // 1) /rebuild-history (usa referencias del QR)
-  let r1 = await tryJson(`${API_URL}/rebuild-history`);
-  attempts.push({ endpoint: "/rebuild-history", ok: r1.ok, error: r1.error });
-  if (r1.ok) {
-    const data = r1.data?.data;
-    if (Array.isArray(data) && data.length > 0) {
-      history = data;
-    }
+  // 1️⃣ Intentar archivo local primero
+  let r1 = await tryJson(`${API_URL}/history`);
+  if (r1.ok && Array.isArray(r1.data) && r1.data.length > 0) {
+    history = r1.data;
+    console.log("✅ Historial cargado desde archivo local");
   }
 
-  // 2) /history (persistencia local)
+  // 2️⃣ Si está vacío, consultar blockchain
   if (history.length === 0) {
-    let r2 = await tryJson(`${API_URL}/history`);
-    attempts.push({ endpoint: "/history", ok: r2.ok, error: r2.error });
-    if (r2.ok && Array.isArray(r2.data) && r2.data.length > 0) {
-      history = r2.data;
-    }
-  }
-
-  // 3) /wallet-history (on-chain sin refs a QR)
-  if (history.length === 0) {
-    let r3 = await tryJson(`${API_URL}/wallet-history?limit=100`);
-    attempts.push({ endpoint: "/wallet-history", ok: r3.ok, error: r3.error });
-    if (r3.ok && Array.isArray(r3.data?.data) && r3.data.data.length > 0) {
-      history = r3.data.data.map((r) => ({
+    console.log("⏳ Consultando blockchain...");
+    historyContainer.innerHTML = `
+      <p style='color: #c084fc; padding: 20px;'>
+        ⏳ Consultando blockchain...<br>
+        <span style='font-size: 0.85rem; color: #9ca3af;'>(puede tardar 10-20 segundos)</span>
+      </p>
+    `;
+    
+    let r2 = await tryJson(`${API_URL}/wallet-history?limit=20`);
+    
+    if (r2.ok && Array.isArray(r2.data?.data) && r2.data.data.length > 0) {
+      history = r2.data.data.map((r) => ({
         txHash: r.txHash,
         amount: r.amount,
         token: r.token,
         date: r.blockTime ? new Date(r.blockTime).toLocaleDateString() : "",
         time: r.blockTime ? new Date(r.blockTime).toLocaleTimeString() : "",
       }));
+      console.log("✅ Historial cargado desde blockchain");
     }
   }
 
   if (history.length > 0) {
     renderHistoryTable(history);
   } else {
-    // Construir mensaje entendible con lo que falló
-    const lines = attempts.map(a =>
-      `${a.endpoint}: ${a.ok ? "ok" : `error - ${a.error || "desconocido"}`}`
-    ).join("<br>");
-    historyContainer.innerHTML =
-      `<p style='color:#aaa'>No hay transacciones o los endpoints no están disponibles.</p>
-       <p style='color:#f87171; margin-top:8px'>Diagnóstico:</p>
-       <div style='font-size:0.9rem; color:#fca5a5'>${lines}</div>
-       <p style='color:#9ca3af; margin-top:8px'>Verifica que tu <b>API_URL</b> apunte al backend correcto (puedes probar con <code>?api=http://localhost:3000</code>).</p>`;
+    historyContainer.innerHTML = `
+      <div style="
+        padding: 20px; 
+        background: #1e0038; 
+        border-radius: 8px; 
+        margin-top: 15px;
+        text-align: left;
+      ">
+        <p style='color: #fbbf24; font-size: 1.1rem; margin-bottom: 15px;'>
+          ⚠️ No hay transacciones disponibles
+        </p>
+        <div style='color: #9ca3af; font-size: 0.9rem; line-height: 1.6;'>
+          <strong style='color: #c084fc;'>Posibles razones:</strong><br>
+          • El servidor se reinició (Render gratuito borra datos)<br>
+          • No hay pagos confirmados aún<br>
+          • El RPC está saturado (error 429)<br><br>
+          
+          <strong style='color: #60a5fa;'>💡 Solución:</strong><br>
+          Usar MongoDB Atlas para guardar datos permanentemente
+        </div>
+      </div>
+    `;
   }
 });
 
-// Descargar historial CSV
+// Descargar CSV
 btnDownload.addEventListener("click", () => {
   window.open(`${API_URL}/history/download`, "_blank");
 });
