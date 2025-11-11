@@ -36,7 +36,7 @@ toggleAdvanced.addEventListener("click", (e) => {
 
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
-// === Función auxiliar: recorta decimales según token ===
+// === Función auxiliar: recorta decimales ===
 function clampDecimals(valueStr, decimals) {
   let v = (valueStr || "").replace(",", ".").replace(/[^\d.]/g, "");
   const parts = v.split(".");
@@ -108,7 +108,7 @@ async function safeJsonFetch(url, options) {
     const text = await (async () => {
       try { return await res.text(); } catch { return ""; }
     })();
-    throw new Error(`Respuesta no-JSON del backend: ${text.slice(0, 200)}`);
+    throw new Error(`Respuesta no-JSON: ${text.slice(0, 200)}`);
   }
 }
 
@@ -256,18 +256,109 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === 📜 HISTORIAL DE TRANSACCIONES (UI MEJORADA) ===
+// === 📜 HISTORIAL CON FILTROS Y DATOS MEJORADOS ===
 const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
 
-// 🎨 Helper: pintar tabla responsive
-function renderHistoryTable(history) {
+let currentFilter = "all"; // "all", "SOL", "USDC"
+
+// 🎨 Renderizar tabla mejorada
+function renderHistoryTable(transactions) {
+  if (!transactions || transactions.length === 0) {
+    historyContainer.innerHTML = `
+      <p style='color: #fbbf24; padding: 20px;'>
+        ⚠️ No hay transacciones ${currentFilter !== 'all' ? 'de ' + currentFilter : ''}
+      </p>
+    `;
+    return;
+  }
+
+  // Calcular totales
+  const totalUSDC = transactions
+    .filter(t => t.token === 'USDC')
+    .reduce((sum, t) => sum + t.amount, 0);
+  
+  const totalSOL = transactions
+    .filter(t => t.token === 'SOL')
+    .reduce((sum, t) => sum + t.amount, 0);
+
   let html = `
+    <!-- Filtros -->
+    <div style="
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    ">
+      <button onclick="filterTransactions('all')" style="
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 2px solid ${currentFilter === 'all' ? '#c084fc' : '#3b0764'};
+        background: ${currentFilter === 'all' ? '#6d28d9' : 'transparent'};
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.3s;
+      ">
+        📊 Todos (${transactions.length})
+      </button>
+      <button onclick="filterTransactions('USDC')" style="
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 2px solid ${currentFilter === 'USDC' ? '#c084fc' : '#3b0764'};
+        background: ${currentFilter === 'USDC' ? '#6d28d9' : 'transparent'};
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.3s;
+      ">
+        💵 USDC (${transactions.filter(t => t.token === 'USDC').length})
+      </button>
+      <button onclick="filterTransactions('SOL')" style="
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 2px solid ${currentFilter === 'SOL' ? '#14f195' : '#3b0764'};
+        background: ${currentFilter === 'SOL' ? '#047857' : 'transparent'};
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.3s;
+      ">
+        ⚡ SOL (${transactions.filter(t => t.token === 'SOL').length})
+      </button>
+    </div>
+
+    <!-- Resumen de totales -->
+    <div style="
+      background: #3b0764;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 10px;
+    ">
+      <div style="text-align: center;">
+        <div style="color: #9ca3af; font-size: 0.8rem;">Total USDC</div>
+        <div style="color: #c084fc; font-size: 1.2rem; font-weight: 600;">
+          ${totalUSDC.toFixed(2)}
+        </div>
+      </div>
+      <div style="text-align: center;">
+        <div style="color: #9ca3af; font-size: 0.8rem;">Total SOL</div>
+        <div style="color: #14f195; font-size: 1.2rem; font-weight: 600;">
+          ${totalSOL.toFixed(5)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla -->
     <div style="
       width: 100%; 
       overflow-x: auto; 
-      margin-top: 15px;
       border-radius: 8px;
       background: #1e0038;
       padding: 10px;
@@ -275,136 +366,113 @@ function renderHistoryTable(history) {
     ">
       <table style="
         width: 100%; 
-        min-width: 500px;
+        min-width: 700px;
         border-collapse: collapse;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
       ">
         <thead>
           <tr style="background: #3b0764; color: #fff;">
-            <th style="padding: 10px 8px; text-align: left; white-space: nowrap;">Hash</th>
+            <th style="padding: 10px 8px; text-align: left;">Signature</th>
             <th style="padding: 10px 8px; text-align: right;">Monto</th>
             <th style="padding: 10px 8px; text-align: center;">Token</th>
-            <th style="padding: 10px 8px; text-align: center; white-space: nowrap;">Fecha</th>
-            <th style="padding: 10px 8px; text-align: center; white-space: nowrap;">Hora</th>
+            <th style="padding: 10px 8px; text-align: left;">Pagador</th>
+            <th style="padding: 10px 8px; text-align: right;">Fee</th>
+            <th style="padding: 10px 8px; text-align: center;">Fecha</th>
+            <th style="padding: 10px 8px; text-align: center;">Hora</th>
           </tr>
         </thead>
         <tbody>
   `;
-  
-  history.forEach((tx, index) => {
-    const hash = tx.signature || tx.txHash || "";
+
+  transactions.forEach((tx, index) => {
     const bgColor = index % 2 === 0 ? "#1e0038" : "#2a0048";
+    const shortSig = tx.signature ? `${tx.signature.slice(0, 8)}...${tx.signature.slice(-4)}` : "N/A";
+    const shortPayer = tx.payer ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}` : "N/A";
     
     html += `
-      <tr style="
-        background: ${bgColor}; 
-        color: #c084fc;
-        transition: background 0.2s;
-      " 
-      onmouseover="this.style.background='#3b0764'" 
-      onmouseout="this.style.background='${bgColor}'">
-        <td style="padding: 8px; font-family: monospace; font-size: 0.8rem;">
-          ${hash ? hash.slice(0, 8) + "..." : "N/A"}
+      <tr style="background: ${bgColor}; color: #c084fc; transition: background 0.2s;"
+          onmouseover="this.style.background='#3b0764'" 
+          onmouseout="this.style.background='${bgColor}'">
+        <td style="padding: 8px; font-family: monospace; font-size: 0.75rem;">
+          <a href="https://solscan.io/tx/${tx.signature}" 
+             target="_blank" 
+             style="color: #60a5fa; text-decoration: none;"
+             title="${tx.signature}">
+            ${shortSig}
+          </a>
         </td>
         <td style="padding: 8px; text-align: right; font-weight: 600;">
-          ${tx.amount ?? "-"}
+          ${tx.amount}
         </td>
         <td style="padding: 8px; text-align: center;">
           <span style="
             background: ${tx.token === 'SOL' ? '#14f195' : '#c084fc'};
             color: #0a0018;
-            padding: 2px 8px;
+            padding: 3px 10px;
             border-radius: 4px;
             font-weight: 600;
             font-size: 0.75rem;
-          ">${tx.token ?? "?"}</span>
+          ">${tx.token}</span>
+        </td>
+        <td style="padding: 8px; font-family: monospace; font-size: 0.75rem;" title="${tx.payer}">
+          ${shortPayer}
+        </td>
+        <td style="padding: 8px; text-align: right; color: #fbbf24; font-size: 0.75rem;">
+          ${tx.fee} SOL
         </td>
         <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
-          ${tx.date ?? "?"}
+          ${tx.date}
         </td>
         <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
-          ${tx.time ?? "?"}
+          ${tx.time}
         </td>
       </tr>
     `;
   });
-  
+
   html += `
         </tbody>
       </table>
     </div>
   `;
-  
+
   historyContainer.innerHTML = html;
 }
 
-btnHistory.addEventListener("click", async () => {
-  historyContainer.innerHTML = "<p style='color:#aaa; padding: 20px;'>🔄 Cargando historial...</p>";
+// 🔄 Función global para filtrar
+window.filterTransactions = async (filter) => {
+  currentFilter = filter;
+  await loadTransactions(filter);
+};
 
-  let history = [];
+// 📥 Cargar transacciones
+async function loadTransactions(filter = "all") {
+  historyContainer.innerHTML = "<p style='color:#aaa; padding: 20px;'>🔄 Cargando transacciones...</p>";
 
-  // 1️⃣ Intentar archivo local primero
-  let r1 = await tryJson(`${API_URL}/history`);
-  if (r1.ok && Array.isArray(r1.data) && r1.data.length > 0) {
-    history = r1.data;
-    console.log("✅ Historial cargado desde archivo local");
-  }
+  const tokenParam = filter !== "all" ? `&token=${filter}` : "";
+  const result = await tryJson(`${API_URL}/transactions?limit=30${tokenParam}`);
 
-  // 2️⃣ Si está vacío, consultar blockchain
-  if (history.length === 0) {
-    console.log("⏳ Consultando blockchain...");
-    historyContainer.innerHTML = `
-      <p style='color: #c084fc; padding: 20px;'>
-        ⏳ Consultando blockchain...<br>
-        <span style='font-size: 0.85rem; color: #9ca3af;'>(puede tardar 10-20 segundos)</span>
-      </p>
-    `;
-    
-    let r2 = await tryJson(`${API_URL}/wallet-history?limit=20`);
-    
-    if (r2.ok && Array.isArray(r2.data?.data) && r2.data.data.length > 0) {
-      history = r2.data.data.map((r) => ({
-        txHash: r.txHash,
-        amount: r.amount,
-        token: r.token,
-        date: r.blockTime ? new Date(r.blockTime).toLocaleDateString() : "",
-        time: r.blockTime ? new Date(r.blockTime).toLocaleTimeString() : "",
-      }));
-      console.log("✅ Historial cargado desde blockchain");
-    }
-  }
-
-  if (history.length > 0) {
-    renderHistoryTable(history);
+  if (result.ok && result.data.data) {
+    renderHistoryTable(result.data.data);
   } else {
     historyContainer.innerHTML = `
-      <div style="
-        padding: 20px; 
-        background: #1e0038; 
-        border-radius: 8px; 
-        margin-top: 15px;
-        text-align: left;
-      ">
-        <p style='color: #fbbf24; font-size: 1.1rem; margin-bottom: 15px;'>
-          ⚠️ No hay transacciones disponibles
+      <div style="padding: 20px; background: #1e0038; border-radius: 8px; margin-top: 15px;">
+        <p style='color: #f87171; font-size: 1.1rem;'>
+          ❌ Error cargando transacciones
         </p>
-        <div style='color: #9ca3af; font-size: 0.9rem; line-height: 1.6;'>
-          <strong style='color: #c084fc;'>Posibles razones:</strong><br>
-          • El servidor se reinició (Render gratuito borra datos)<br>
-          • No hay pagos confirmados aún<br>
-          • El RPC está saturado (error 429)<br><br>
-          
-          <strong style='color: #60a5fa;'>💡 Solución:</strong><br>
-          Usar MongoDB Atlas para guardar datos permanentemente
-        </div>
+        <p style='color: #9ca3af; font-size: 0.9rem; margin-top: 10px;'>
+          ${result.error || 'Error desconocido'}
+        </p>
       </div>
     `;
   }
-});
+}
 
-// Descargar CSV
+// Event listeners
+btnHistory.addEventListener("click", () => loadTransactions("all"));
+
 btnDownload.addEventListener("click", () => {
-  window.open(`${API_URL}/history/download`, "_blank");
+  window.open(`${API_URL}/transactions/download`, "_blank");
 });
 
 historyContainer.style.marginBottom = "40px";

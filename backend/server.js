@@ -4,22 +4,11 @@ import { PublicKey, Connection, clusterApiUrl, Keypair } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import dotenv from "dotenv";
-import fs from "fs";
 
 dotenv.config();
 
 const app = express();
-const HISTORY_FILE = "./payments-history.json";
 const PORT = process.env.PORT || 3000;
-
-// === Guardar historial en disco ===
-function saveHistory() {
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(global.payments, null, 2));
-  } catch (e) {
-    console.error("No se pudo guardar historial:", e.message);
-  }
-}
 
 // === CORS ===
 app.use(
@@ -38,48 +27,30 @@ app.use(
 );
 app.use(express.json());
 
-// === Configuración base ===
+// === Configuración ===
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
-if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en archivo .env");
+if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en .env");
 
 const USDC_MINTS = {
   "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
-// 🔥 RPC con configuración optimizada
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
-const connection = new Connection(RPC_URL, {
-  commitment: "confirmed",
-  // ⚡ Configuración para reducir llamadas
-  httpHeaders: {
-    "Content-Type": "application/json",
-  },
-});
+const connection = new Connection(RPC_URL, { commitment: "confirmed" });
 
 const toBN = (v) => new BigNumber(String(v));
 
-// === Cargar historial guardado ===
-global.payments = {};
-try {
-  if (fs.existsSync(HISTORY_FILE)) {
-    const data = fs.readFileSync(HISTORY_FILE, "utf8");
-    global.payments = JSON.parse(data);
-    console.log(`📂 Historial cargado: ${Object.keys(global.payments).length} registros`);
-  } else {
-    console.log("ℹ️ No hay historial previo, iniciando nuevo archivo.");
-  }
-} catch (err) {
-  console.error("⚠️ Error al leer historial:", err);
-}
+// Cache temporal para pagos pendientes (solo sesión actual)
+global.pendingPayments = {};
 
 // ============================================
 // 🔹 RUTAS
 // ============================================
 
 app.get("/", (_req, res) => {
-  res.send("✅ RayPay backend activo y operativo.");
+  res.send("✅ RayPay backend activo - Solo blockchain");
 });
 
 app.get("/__health", (_req, res) => {
@@ -87,21 +58,9 @@ app.get("/__health", (_req, res) => {
     ok: true,
     cluster: CLUSTER,
     merchant: MERCHANT_WALLET,
+    mode: "blockchain-only",
     now: new Date().toISOString(),
   });
-});
-
-app.get("/routes", (_req, res) => {
-  const routes = [];
-  app._router.stack.forEach((m) => {
-    if (m.route && m.route.path) {
-      routes.push({ 
-        method: Object.keys(m.route.methods)[0].toUpperCase(), 
-        path: m.route.path 
-      });
-    }
-  });
-  res.json({ routes });
 });
 
 // === Crear pago (QR) ===
@@ -128,10 +87,10 @@ app.post("/create-payment", (req, res) => {
       reference,
     });
 
-    global.payments[reference.toBase58()] = {
+    // Guardar solo en memoria temporal
+    global.pendingPayments[reference.toBase58()] = {
       amount: amountBN.toString(),
       token: chosenToken,
-      status: "pendiente",
       created: new Date().toISOString(),
     };
 
@@ -143,7 +102,7 @@ app.post("/create-payment", (req, res) => {
       reference: reference.toBase58(),
     });
 
-    console.log(`[${CLUSTER}] 💰 Nuevo pago ${amountBN.toString()} ${chosenToken}`);
+    console.log(`[${CLUSTER}] 💰 QR generado: ${amountBN.toString()} ${chosenToken}`);
   } catch (err) {
     console.error("Error en /create-payment:", err);
     res.status(500).json({ error: err.message });
@@ -153,7 +112,7 @@ app.post("/create-payment", (req, res) => {
 // === Confirmar pago ===
 app.get("/confirm/:reference", async (req, res) => {
   const { reference } = req.params;
-  const payment = global.payments[reference];
+  const payment = global.pendingPayments[reference];
   if (!payment) return res.status(404).json({ error: "Referencia no encontrada" });
 
   try {
@@ -162,7 +121,11 @@ app.get("/confirm/:reference", async (req, res) => {
 
     if (!sigInfo?.signature) return res.json({ status: "pendiente" });
 
-    const tx = await connection.getParsedTransaction(sigInfo.signature, { commitment: "confirmed" });
+    const tx = await connection.getParsedTransaction(sigInfo.signature, { 
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0 
+    });
+    
     if (!tx?.meta) return res.json({ status: "pendiente" });
 
     const merchant = MERCHANT_WALLET;
@@ -184,17 +147,6 @@ app.get("/confirm/:reference", async (req, res) => {
     }
 
     if (received >= expectedAmount - 0.00001) {
-      payment.status = "pagado";
-      payment.signature = sigInfo.signature;
-      payment.txHash = sigInfo.signature;
-      payment.confirmedAt = new Date().toISOString();
-      payment.summary = {
-        token: payment.token,
-        amount: payment.amount,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString(),
-      };
-      saveHistory();
       console.log(`✅ Pago confirmado: ${payment.amount} ${payment.token}`);
       return res.json({ status: "pagado", signature: sigInfo.signature });
     } else {
@@ -207,79 +159,32 @@ app.get("/confirm/:reference", async (req, res) => {
   }
 });
 
-// === Historial (archivo local) ===
-app.get("/history", (req, res) => {
-  const list = Object.entries(global.payments).map(([ref, p]) => ({
-    reference: ref,
-    status: p.status,
-    amount: p.amount,
-    token: p.token,
-    date: p.summary?.date,
-    time: p.summary?.time,
-    txHash: p.txHash,
-  }));
-  res.json(list);
-});
-
-// === Descargar CSV ===
-app.get("/history/download", (req, res) => {
-  const list = Object.entries(global.payments).map(([ref, p]) => ({
-    Reference: ref,
-    Estado: p.status,
-    Token: p.token,
-    Monto: p.amount,
-    Fecha: p.summary?.date,
-    Hora: p.summary?.time,
-    TxHash: p.txHash,
-  }));
-
-  const csv =
-    "Reference,Estado,Token,Monto,Fecha,Hora,TxHash\n" +
-    list.map((r) => Object.values(r).map((v) => `"${v ?? ""}"`).join(",")).join("\n");
-
-  res.header("Content-Type", "text/csv");
-  res.attachment("historial.csv");
-  res.send(csv);
-});
-
-// === REBUILD HISTORY (desactivado por defecto para evitar 429) ===
-app.get("/rebuild-history", async (req, res) => {
-  // ⚠️ Esta ruta hace MUCHAS llamadas al RPC
-  // Solo úsala si tienes un RPC premium (Helius/QuickNode pagado)
-  res.status(503).json({ 
-    error: "Endpoint desactivado temporalmente",
-    reason: "Causa muchos errores 429 en RPC gratuito",
-    suggestion: "Usa /wallet-history con limit bajo o migra a base de datos"
-  });
-});
-
-// === WALLET HISTORY (optimizado y con límite bajo) ===
-app.get("/wallet-history", async (req, res) => {
+// === 🔥 HISTORIAL MEJORADO (solo transacciones exitosas) ===
+app.get("/transactions", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
-    // 🎯 Límite MUY bajo para evitar 429
-    const limit = Math.min(parseInt(req.query.limit || "15", 10), 30);
+    const limit = Math.min(parseInt(req.query.limit || "30", 10), 100);
+    const filterToken = req.query.token; // "SOL", "USDC" o undefined (todos)
     const usdcMint = USDC_MINTS[CLUSTER];
 
     console.log(`⏳ Consultando últimas ${limit} transacciones...`);
 
-    // 1️⃣ Obtener firmas (1 llamada)
+    // 1️⃣ Obtener firmas
     const sigs = await connection.getSignaturesForAddress(merchant, { limit });
-    if (!sigs.length) return res.json({ data: [], meta: { note: "sin-firmas" } });
+    if (!sigs.length) return res.json({ data: [], total: 0 });
 
-    // 2️⃣ Procesar en lotes pequeños de 10 (en vez de 20)
+    // 2️⃣ Procesar en lotes pequeños
     const chunks = [];
     for (let i = 0; i < sigs.length; i += 10) {
       chunks.push(sigs.slice(i, i + 10).map(s => s.signature));
     }
 
-    const rows = [];
+    const transactions = [];
+    
     for (const [index, batch] of chunks.entries()) {
-      console.log(`📦 Procesando lote ${index + 1}/${chunks.length}...`);
-      
-      // ⏱️ Pequeña pausa entre lotes para no saturar el RPC
+      // Pausa entre lotes para evitar 429
       if (index > 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
       const txs = await connection.getParsedTransactions(batch, { 
@@ -290,8 +195,17 @@ app.get("/wallet-history", async (req, res) => {
       for (const tx of txs || []) {
         if (!tx?.meta) continue;
 
+        // 🔥 SOLO transacciones exitosas
+        if (tx.meta.err !== null) continue;
+
         const keys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
         const idx = keys.indexOf(merchant.toBase58());
+        
+        // Identificar wallet del pagador (primera cuenta que no sea merchant)
+        const payer = tx.transaction.message.accountKeys[0]?.pubkey?.toBase58() || "desconocido";
+
+        // Fee de la transacción
+        const fee = tx.meta.fee / 1e9; // Convertir lamports a SOL
 
         // SOL recibido
         let solReceived = 0;
@@ -300,52 +214,106 @@ app.get("/wallet-history", async (req, res) => {
         }
 
         // USDC recibido
-        const preT = tx.meta.preTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
-        const postT = tx.meta.postTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
+        const preT = tx.meta.preTokenBalances?.find(b => b.owner === merchant && b.mint === usdcMint);
+        const postT = tx.meta.postTokenBalances?.find(b => b.owner === merchant && b.mint === usdcMint);
         const preAmt = preT?.uiTokenAmount?.uiAmount ?? 0;
         const postAmt = postT?.uiTokenAmount?.uiAmount ?? 0;
         const usdcReceived = postAmt - preAmt;
 
-        const ms = (tx.blockTime ? tx.blockTime * 1000 : Date.now());
+        const blockTime = tx.blockTime ? tx.blockTime * 1000 : Date.now();
         const sig = tx.transaction.signatures?.[0];
 
+        // Construir objeto de transacción
+        let txData = null;
+
         if (usdcReceived > 0) {
-          rows.push({ 
-            txHash: sig, 
-            amount: Number(usdcReceived.toFixed(6)), 
-            token: "USDC", 
-            blockTime: ms 
-          });
+          txData = {
+            signature: sig,
+            token: "USDC",
+            amount: Number(usdcReceived.toFixed(6)),
+            payer: payer,
+            fee: Number(fee.toFixed(9)),
+            slot: tx.slot,
+            blockTime: blockTime,
+            date: new Date(blockTime).toLocaleDateString('es-ES'),
+            time: new Date(blockTime).toLocaleTimeString('es-ES'),
+            status: "success",
+          };
         } else if (solReceived > 0) {
-          rows.push({ 
-            txHash: sig, 
-            amount: Number(solReceived.toFixed(9)), 
-            token: "SOL", 
-            blockTime: ms 
-          });
+          txData = {
+            signature: sig,
+            token: "SOL",
+            amount: Number(solReceived.toFixed(9)),
+            payer: payer,
+            fee: Number(fee.toFixed(9)),
+            slot: tx.slot,
+            blockTime: blockTime,
+            date: new Date(blockTime).toLocaleDateString('es-ES'),
+            time: new Date(blockTime).toLocaleTimeString('es-ES'),
+            status: "success",
+          };
+        }
+
+        // Aplicar filtro de token si existe
+        if (txData) {
+          if (!filterToken || txData.token === filterToken.toUpperCase()) {
+            transactions.push(txData);
+          }
         }
       }
     }
 
-    console.log(`✅ Encontradas ${rows.length} transacciones`);
-    return res.json({ data: rows, meta: { processed: limit } });
+    // Ordenar por fecha (más recientes primero)
+    transactions.sort((a, b) => b.blockTime - a.blockTime);
+
+    console.log(`✅ Encontradas ${transactions.length} transacciones exitosas`);
+    return res.json({ 
+      data: transactions, 
+      total: transactions.length,
+      filtered: filterToken ? true : false,
+      filterToken: filterToken || "all"
+    });
 
   } catch (err) {
-    // Manejo especial de 429
     if (String(err?.message || "").includes("Too Many Requests") || 
         String(err?.message || "").includes("429")) {
-      console.warn("⚠️ Rate-limited por el RPC. Devuelvo data vacía.");
+      console.warn("⚠️ Rate-limited por el RPC");
       return res.json({ 
         data: [], 
-        meta: { 
-          warning: "rate_limited_rpc",
-          suggestion: "Reduce el límite o usa un RPC premium"
-        } 
+        total: 0,
+        error: "rate_limited",
+        message: "RPC temporalmente saturado, intenta de nuevo en unos segundos"
       });
     }
     
-    console.error("Error en /wallet-history:", err);
+    console.error("Error en /transactions:", err);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// === Descargar CSV mejorado ===
+app.get("/transactions/download", async (req, res) => {
+  try {
+    const limit = 50; // Límite prudente para descarga
+    const result = await fetch(`http://localhost:${PORT}/transactions?limit=${limit}`);
+    const data = await result.json();
+
+    if (!data.data || data.data.length === 0) {
+      return res.status(404).send("No hay transacciones para descargar");
+    }
+
+    const csv =
+      "Signature,Token,Monto,Pagador,Fee,Slot,Fecha,Hora,Estado\n" +
+      data.data.map((tx) => 
+        `"${tx.signature}","${tx.token}","${tx.amount}","${tx.payer}","${tx.fee}","${tx.slot}","${tx.date}","${tx.time}","${tx.status}"`
+      ).join("\n");
+
+    res.header("Content-Type", "text/csv; charset=utf-8");
+    res.attachment(`transacciones_${new Date().toISOString().split('T')[0]}.csv`);
+    res.send(csv);
+  } catch (err) {
+    console.error("Error generando CSV:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -353,7 +321,7 @@ app.get("/wallet-history", async (req, res) => {
 // 🚀 INICIAR SERVIDOR
 // ============================================
 app.listen(PORT, () => {
-  console.log(`✅ Servidor RayPay activo en http://localhost:${PORT} [${CLUSTER}]`);
-  console.log(`📍 Rutas: /, /create-payment, /confirm/:ref, /history, /wallet-history`);
-  console.log(`⚠️ /rebuild-history desactivado (causa errores 429)`);
+  console.log(`✅ RayPay activo en http://localhost:${PORT} [${CLUSTER}]`);
+  console.log(`📍 Modo: Solo blockchain (sin base de datos)`);
+  console.log(`🔹 Endpoints: /create-payment, /confirm/:ref, /transactions, /transactions/download`);
 });
