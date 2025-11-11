@@ -381,6 +381,11 @@ app.get("/wallet-history", async (req, res) => {
  * Escanea todas las transacciones relacionadas con tus referencias de pago
  * y reconstruye el historial directamente desde la blockchain.
  */
+/**
+ * GET /rebuild-history
+ * Escanea todas las transacciones relacionadas con tus referencias de pago
+ * y reconstruye el historial directamente desde la blockchain.
+ */
 app.get("/rebuild-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
@@ -389,45 +394,56 @@ app.get("/rebuild-history", async (req, res) => {
 
     console.log("🔍 Buscando pagos confirmados en la red...");
 
-    // Obtiene las últimas firmas de la wallet
+    // Obtener firmas recientes de la wallet del comercio
     const sigs = await connection.getSignaturesForAddress(merchant, { limit });
 
     for (const s of sigs) {
       const tx = await connection.getParsedTransaction(s.signature, {
         commitment: "confirmed",
       });
-
       if (!tx || !tx.meta) continue;
 
-      // Revisa si la transacción tiene referencias (memos)
-      const refs = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      // 🔍 Extraer referencias de la transacción (las "accountKeys" de las instrucciones)
+      const instructionRefs = [];
+      for (const ix of tx.transaction.message.instructions) {
+        if (ix.accounts && ix.accounts.length) {
+          for (const acc of ix.accounts) {
+            const keyIndex = acc;
+            const key = tx.transaction.message.accountKeys[keyIndex];
+            if (key && key.pubkey) instructionRefs.push(key.pubkey.toBase58());
+          }
+        }
+      }
 
-      // Si alguna de las referencias pertenece a tu app
+      // Buscar si alguna referencia coincide con una generada por tu app
       for (const ref of Object.keys(global.payments)) {
-        if (refs.includes(ref)) {
+        if (instructionRefs.includes(ref)) {
           const amount = global.payments[ref]?.amount || null;
+          const blockTime = tx.blockTime
+            ? new Date(tx.blockTime * 1000)
+            : new Date();
+
           confirmed.push({
             reference: ref,
             signature: s.signature,
             amount,
-            date: new Date((tx.blockTime || 0) * 1000).toLocaleDateString(),
-            time: new Date((tx.blockTime || 0) * 1000).toLocaleTimeString(),
-            token: "USDC",
+            token: global.payments[ref]?.token || "USDC",
+            date: blockTime.toLocaleDateString(),
+            time: blockTime.toLocaleTimeString(),
             status: "pagado",
           });
         }
       }
     }
 
-    res.json({
-      total: confirmed.length,
-      data: confirmed,
-    });
+    console.log(`✅ ${confirmed.length} transacciones de QR encontradas`);
+    res.json({ total: confirmed.length, data: confirmed });
   } catch (err) {
     console.error("Error reconstruyendo historial:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`✅ Servidor en http://localhost:${PORT} [${CLUSTER}]`);
