@@ -32,22 +32,23 @@ const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
 if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en .env");
 
-// 🔥 Extraer API key de Helius
-const HELIUS_API_KEY = process.env.RPC_URL?.includes("helius-rpc.com")
-  ? process.env.RPC_URL.split("api-key=")[1]
-  : "eca95102-fe5e-40f3-aff4-37fd1361f13c"; // fallback
-
 const USDC_MINTS = {
   "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
+// 🔥 USAR HELIUS RPC (más rápido que el público)
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
-const connection = new Connection(RPC_URL, { commitment: "confirmed" });
+const connection = new Connection(RPC_URL, { 
+  commitment: "confirmed",
+  confirmTransactionInitialTimeout: 60000
+});
+
+console.log(`🌐 Usando RPC: ${RPC_URL}`);
 
 const toBN = (v) => new BigNumber(String(v));
 
-// Cache temporal para pagos pendientes
+// Cache temporal
 global.pendingPayments = {};
 
 // ============================================
@@ -55,7 +56,7 @@ global.pendingPayments = {};
 // ============================================
 
 app.get("/", (_req, res) => {
-  res.send("✅ RayPay backend - Usando Helius API (sin rate limit)");
+  res.send("✅ RayPay backend - Helius RPC optimizado");
 });
 
 app.get("/__health", (_req, res) => {
@@ -63,8 +64,7 @@ app.get("/__health", (_req, res) => {
     ok: true,
     cluster: CLUSTER,
     merchant: MERCHANT_WALLET,
-    mode: "helius-api",
-    hasApiKey: !!HELIUS_API_KEY,
+    rpcUrl: RPC_URL.includes("helius") ? "Helius RPC" : "Public RPC",
     now: new Date().toISOString(),
   });
 });
@@ -107,7 +107,7 @@ app.post("/create-payment", (req, res) => {
       reference: reference.toBase58(),
     });
 
-    console.log(`[${CLUSTER}] 💰 QR generado: ${amountBN.toString()} ${chosenToken}`);
+    console.log(`💰 QR generado: ${amountBN.toString()} ${chosenToken}`);
   } catch (err) {
     console.error("Error en /create-payment:", err);
     res.status(500).json({ error: err.message });
@@ -164,76 +164,121 @@ app.get("/confirm/:reference", async (req, res) => {
   }
 });
 
-// === 🔥 HISTORIAL usando Helius API (1 sola llamada, sin rate limit) ===
+// === 🔥 HISTORIAL (método optimizado con Helius RPC) ===
 app.get("/transactions", async (req, res) => {
   try {
-    const merchant = MERCHANT_WALLET;
-    const limit = Math.min(parseInt(req.query.limit || "50", 10), 100);
+    const merchant = new PublicKey(MERCHANT_WALLET);
+    const limit = Math.min(parseInt(req.query.limit || "20", 10), 50);
     const filterToken = req.query.token?.toUpperCase();
     const usdcMint = USDC_MINTS[CLUSTER];
 
-    console.log(`⏳ Consultando historial con Helius API...`);
+    console.log(`⏳ Obteniendo ${limit} transacciones de ${MERCHANT_WALLET.slice(0, 8)}...`);
 
-    // 🚀 Helius Enhanced Transactions API - UNA SOLA LLAMADA
-    const heliusUrl = `https://api.helius.xyz/v0/addresses/${merchant}/transactions?api-key=${HELIUS_API_KEY}&limit=${limit}`;
-    
-    const response = await fetch(heliusUrl);
-    
-    if (!response.ok) {
-      throw new Error(`Helius API error: ${response.status} ${response.statusText}`);
+    // 1️⃣ Obtener firmas (1 llamada)
+    const signatures = await connection.getSignaturesForAddress(merchant, { 
+      limit 
+    });
+
+    console.log(`📦 ${signatures.length} firmas obtenidas`);
+
+    if (signatures.length === 0) {
+      return res.json({ 
+        data: [], 
+        total: 0,
+        message: "No hay transacciones en esta wallet"
+      });
     }
 
-    const heliusData = await response.json();
-
-    if (!Array.isArray(heliusData) || heliusData.length === 0) {
-      return res.json({ data: [], total: 0, source: "helius-api" });
-    }
-
+    // 2️⃣ Procesar en lotes de 5 (conservador para evitar 429)
+    const batchSize = 5;
     const transactions = [];
-
-    for (const tx of heliusData) {
-      // Solo transacciones exitosas
-      if (tx.err !== null) continue;
-
-      // Buscar transferencias nativas (SOL)
-      const nativeTransfers = tx.nativeTransfers || [];
-      for (const transfer of nativeTransfers) {
-        if (transfer.toUserAccount === merchant && transfer.amount > 0) {
-          transactions.push({
-            signature: tx.signature,
-            token: "SOL",
-            amount: Number((transfer.amount / 1e9).toFixed(9)),
-            payer: transfer.fromUserAccount || "desconocido",
-            fee: tx.fee ? Number((tx.fee / 1e9).toFixed(9)) : 0,
-            slot: tx.slot,
-            blockTime: tx.timestamp ? tx.timestamp * 1000 : Date.now(),
-            date: tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleDateString('es-ES') : "?",
-            time: tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleTimeString('es-ES') : "?",
-            status: "success",
-          });
-        }
+    
+    for (let i = 0; i < signatures.length; i += batchSize) {
+      const batch = signatures.slice(i, i + batchSize);
+      const sigs = batch.map(s => s.signature);
+      
+      console.log(`📤 Procesando lote ${Math.floor(i/batchSize) + 1}/${Math.ceil(signatures.length/batchSize)}...`);
+      
+      // Pausa entre lotes (excepto el primero)
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Buscar transferencias de tokens (USDC)
-      const tokenTransfers = tx.tokenTransfers || [];
-      for (const transfer of tokenTransfers) {
-        if (
-          transfer.toUserAccount === merchant && 
-          transfer.mint === usdcMint &&
-          transfer.tokenAmount > 0
-        ) {
-          transactions.push({
-            signature: tx.signature,
-            token: "USDC",
-            amount: Number(transfer.tokenAmount.toFixed(6)),
-            payer: transfer.fromUserAccount || "desconocido",
-            fee: tx.fee ? Number((tx.fee / 1e9).toFixed(9)) : 0,
-            slot: tx.slot,
-            blockTime: tx.timestamp ? tx.timestamp * 1000 : Date.now(),
-            date: tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleDateString('es-ES') : "?",
-            time: tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleTimeString('es-ES') : "?",
-            status: "success",
-          });
+      // Obtener transacciones parseadas
+      const txs = await connection.getParsedTransactions(sigs, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0
+      });
+
+      // Procesar cada transacción
+      for (let j = 0; j < txs.length; j++) {
+        const tx = txs[j];
+        if (!tx?.meta) continue;
+
+        // Solo transacciones exitosas
+        if (tx.meta.err !== null) continue;
+
+        const sig = batch[j].signature;
+        const blockTime = batch[j].blockTime ? batch[j].blockTime * 1000 : Date.now();
+        
+        const keys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+        const merchantIndex = keys.indexOf(merchant.toBase58());
+        
+        // Wallet del pagador (primer signer)
+        const payer = tx.transaction.message.accountKeys[0]?.pubkey?.toBase58() || "desconocido";
+        
+        // Fee
+        const fee = tx.meta.fee / 1e9;
+
+        // 💰 Detectar SOL recibido
+        if (merchantIndex >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
+          const solReceived = (tx.meta.postBalances[merchantIndex] - tx.meta.preBalances[merchantIndex]) / 1e9;
+          
+          if (solReceived > 0) {
+            transactions.push({
+              signature: sig,
+              token: "SOL",
+              amount: Number(solReceived.toFixed(9)),
+              payer: payer,
+              fee: Number(fee.toFixed(9)),
+              slot: tx.slot || 0,
+              blockTime: blockTime,
+              date: new Date(blockTime).toLocaleDateString('es-ES'),
+              time: new Date(blockTime).toLocaleTimeString('es-ES'),
+              status: "success",
+            });
+            console.log(`  ✅ SOL: ${solReceived.toFixed(5)}`);
+          }
+        }
+
+        // 💵 Detectar USDC recibido
+        const preToken = tx.meta.preTokenBalances?.find(b => 
+          b.owner === merchant.toBase58() && b.mint === usdcMint
+        );
+        const postToken = tx.meta.postTokenBalances?.find(b => 
+          b.owner === merchant.toBase58() && b.mint === usdcMint
+        );
+        
+        if (preToken && postToken) {
+          const preAmt = preToken.uiTokenAmount?.uiAmount ?? 0;
+          const postAmt = postToken.uiTokenAmount?.uiAmount ?? 0;
+          const usdcReceived = postAmt - preAmt;
+
+          if (usdcReceived > 0) {
+            transactions.push({
+              signature: sig,
+              token: "USDC",
+              amount: Number(usdcReceived.toFixed(6)),
+              payer: payer,
+              fee: Number(fee.toFixed(9)),
+              slot: tx.slot || 0,
+              blockTime: blockTime,
+              date: new Date(blockTime).toLocaleDateString('es-ES'),
+              time: new Date(blockTime).toLocaleTimeString('es-ES'),
+              status: "success",
+            });
+            console.log(`  ✅ USDC: ${usdcReceived.toFixed(2)}`);
+          }
         }
       }
     }
@@ -247,25 +292,34 @@ app.get("/transactions", async (req, res) => {
     // Ordenar por fecha (más recientes primero)
     filtered.sort((a, b) => b.blockTime - a.blockTime);
 
-    console.log(`✅ ${filtered.length} transacciones encontradas vía Helius API`);
-    
-    return res.json({ 
-      data: filtered, 
+    console.log(`✅ ${filtered.length} transacciones procesadas`);
+
+    return res.json({
+      data: filtered,
       total: filtered.length,
-      source: "helius-api",
+      processed: signatures.length,
       filtered: filterToken ? true : false,
-      filterToken: filterToken || "all"
+      filterToken: filterToken || "all",
     });
 
   } catch (err) {
-    console.error("Error en /transactions con Helius API:", err);
+    console.error("❌ Error en /transactions:", err);
     
-    // Si Helius falla, informar claramente
-    return res.status(500).json({ 
+    // Manejo de rate limit
+    if (String(err?.message || "").includes("429") || 
+        String(err?.message || "").includes("Too Many Requests")) {
+      return res.json({
+        data: [],
+        total: 0,
+        error: "rate_limited",
+        message: "RPC temporalmente saturado. Intenta de nuevo en unos segundos.",
+      });
+    }
+
+    return res.status(500).json({
       error: err.message,
-      suggestion: "Verifica tu HELIUS_API_KEY en el archivo .env",
       data: [],
-      total: 0
+      total: 0,
     });
   }
 });
@@ -273,8 +327,8 @@ app.get("/transactions", async (req, res) => {
 // === Descargar CSV ===
 app.get("/transactions/download", async (req, res) => {
   try {
-    const result = await fetch(`http://localhost:${PORT}/transactions?limit=100`);
-    const data = await result.json();
+    const response = await fetch(`http://localhost:${PORT}/transactions?limit=50`);
+    const data = await response.json();
 
     if (!data.data || data.data.length === 0) {
       return res.status(404).send("No hay transacciones para descargar");
@@ -299,8 +353,7 @@ app.get("/transactions/download", async (req, res) => {
 // 🚀 INICIAR SERVIDOR
 // ============================================
 app.listen(PORT, () => {
-  console.log(`✅ RayPay activo en http://localhost:${PORT} [${CLUSTER}]`);
-  console.log(`🚀 Usando Helius API (sin límites de rate)`);
-  console.log(`🔑 API Key: ${HELIUS_API_KEY ? "✅ Configurada" : "❌ Falta"}`);
-  console.log(`📍 Endpoints: /create-payment, /confirm/:ref, /transactions`);
+  console.log(`✅ RayPay activo en puerto ${PORT} [${CLUSTER}]`);
+  console.log(`🌐 RPC: ${RPC_URL.includes("helius") ? "Helius (optimizado)" : "Público"}`);
+  console.log(`📍 Wallet: ${MERCHANT_WALLET}`);
 });
