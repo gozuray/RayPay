@@ -38,11 +38,6 @@ app.use(
 );
 app.use(express.json());
 
-// === Ping ===
-app.get("/", (_req, res) => {
-  res.send("✅ RayPay backend activo y operativo.");
-});
-
 // === Configuración base ===
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
@@ -53,7 +48,6 @@ const USDC_MINTS = {
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
-// RPC dedicado opcional: .env -> RPC_URL=https://<tu-proveedor-rpc>
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
 const connection = new Connection(RPC_URL, {
   commitment: "confirmed",
@@ -74,6 +68,39 @@ try {
 } catch (err) {
   console.error("⚠️ Error al leer historial:", err);
 }
+
+// ============================================
+// 🔹 TODAS LAS RUTAS DEFINIDAS AQUÍ
+// ============================================
+
+// === Ping / Home ===
+app.get("/", (_req, res) => {
+  res.send("✅ RayPay backend activo y operativo.");
+});
+
+// === Healthcheck ===
+app.get("/__health", (_req, res) => {
+  res.json({
+    ok: true,
+    cluster: CLUSTER,
+    merchant: MERCHANT_WALLET,
+    now: new Date().toISOString(),
+  });
+});
+
+// === Listar rutas disponibles ===
+app.get("/routes", (_req, res) => {
+  const routes = [];
+  app._router.stack.forEach((m) => {
+    if (m.route && m.route.path) {
+      routes.push({ 
+        method: Object.keys(m.route.methods)[0].toUpperCase(), 
+        path: m.route.path 
+      });
+    }
+  });
+  res.json({ routes });
+});
 
 // === Crear pago (QR) ===
 app.post("/create-payment", (req, res) => {
@@ -121,7 +148,7 @@ app.post("/create-payment", (req, res) => {
   }
 });
 
-// === Confirmar pago (con referencia del QR) ===
+// === Confirmar pago ===
 app.get("/confirm/:reference", async (req, res) => {
   const { reference } = req.params;
   const payment = global.payments[reference];
@@ -178,7 +205,7 @@ app.get("/confirm/:reference", async (req, res) => {
   }
 });
 
-// === Historial (desde archivo) ===
+// === Historial (archivo local) ===
 app.get("/history", (req, res) => {
   const list = Object.entries(global.payments).map(([ref, p]) => ({
     reference: ref,
@@ -213,30 +240,7 @@ app.get("/history/download", (req, res) => {
   res.send(csv);
 });
 
-
-
-
-
-// --- Healthcheck y diagnóstico de rutas ---
-app.get("/__health", (_req, res) => {
-  res.json({
-    ok: true,
-    cluster: CLUSTER,
-    merchant: MERCHANT_WALLET,
-    now: new Date().toISOString(),
-  });
-});
-app.get("/routes", (_req, res) => {
-  const routes = [];
-  app._router.stack.forEach((m) => {
-    if (m.route && m.route.path) {
-      routes.push({ method: Object.keys(m.route.methods)[0].toUpperCase(), path: m.route.path });
-    }
-  });
-  res.json({ routes });
-});
-
-// --- REBUILD HISTORY: reconstruye usando transacciones on-chain ---
+// === REBUILD HISTORY ===
 app.get("/rebuild-history", async (req, res) => {
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
@@ -247,7 +251,6 @@ app.get("/rebuild-history", async (req, res) => {
       const tx = await connection.getParsedTransaction(s.signature, { commitment: "confirmed" });
       if (!tx?.meta) continue;
 
-      // Buscar referencias que coincidan con las que guardaste al generar QR
       const usedKeys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
       for (const ref of Object.keys(global.payments || {})) {
         if (usedKeys.includes(ref)) {
@@ -263,7 +266,7 @@ app.get("/rebuild-history", async (req, res) => {
             time: new Date(ms).toLocaleTimeString(),
             status: "pagado",
           });
-          // Marca pagado en tu archivo local
+          
           global.payments[ref] = {
             ...p,
             status: "pagado",
@@ -282,19 +285,17 @@ app.get("/rebuild-history", async (req, res) => {
   }
 });
 
-// --- WALLET HISTORY (batch + tolerante a rate-limit) ---
+// === WALLET HISTORY (optimizado) ===
 app.get("/wallet-history", async (req, res) => {
-
   try {
     const merchant = new PublicKey(MERCHANT_WALLET);
-    const limit = Math.min(parseInt(req.query.limit || "60", 10), 200); // prudente
+    const limit = Math.min(parseInt(req.query.limit || "60", 10), 200);
     const usdcMint = USDC_MINTS[CLUSTER];
 
-    // 1) Firmas (una sola llamada)
     const sigs = await connection.getSignaturesForAddress(merchant, { limit });
     if (!sigs.length) return res.json({ data: [], meta: { note: "sin-firmas" } });
 
-    // 2) Batch de transacciones (reduce llamadas): 20 por lote
+    // Procesar en lotes de 20
     const chunks = [];
     for (let i = 0; i < sigs.length; i += 20) {
       chunks.push(sigs.slice(i, i + 20).map(s => s.signature));
@@ -302,7 +303,6 @@ app.get("/wallet-history", async (req, res) => {
 
     const rows = [];
     for (const batch of chunks) {
-      // getParsedTransactions acepta array
       const txs = await connection.getParsedTransactions(batch, { commitment: "confirmed" });
 
       for (const tx of txs || []) {
@@ -317,7 +317,7 @@ app.get("/wallet-history", async (req, res) => {
           solReceived = (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
         }
 
-        // USDC recibido (delta token)
+        // USDC recibido
         const preT = tx.meta.preTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
         const postT = tx.meta.postTokenBalances?.find(b => b.owner === merchant.toBase58() && b.mint === usdcMint);
         const preAmt = preT?.uiTokenAmount?.uiAmount ?? 0;
@@ -328,17 +328,26 @@ app.get("/wallet-history", async (req, res) => {
         const sig = tx.transaction.signatures?.[0];
 
         if (usdcReceived > 0) {
-          rows.push({ txHash: sig, amount: Number(usdcReceived.toFixed(6)), token: "USDC", blockTime: ms });
+          rows.push({ 
+            txHash: sig, 
+            amount: Number(usdcReceived.toFixed(6)), 
+            token: "USDC", 
+            blockTime: ms 
+          });
         } else if (solReceived > 0) {
-          rows.push({ txHash: sig, amount: Number(solReceived.toFixed(9)), token: "SOL", blockTime: ms });
+          rows.push({ 
+            txHash: sig, 
+            amount: Number(solReceived.toFixed(9)), 
+            token: "SOL", 
+            blockTime: ms 
+          });
         }
       }
     }
 
     return res.json({ data: rows });
   } catch (err) {
-    // Si el RPC tiró 429, no devolvemos 500 (que rompe tu UI).
-    // Devolvemos 200 con data vacía y meta para que tu frontend siga y muestre el fallback.
+    // Manejo especial de rate limiting
     if (String(err?.message || "").includes("Too Many Requests") || String(err).includes("429")) {
       console.warn("Rate-limited por el RPC. Devuelvo data vacía para no romper el flujo.");
       return res.json({ data: [], meta: { warning: "rate_limited_rpc" } });
@@ -348,8 +357,10 @@ app.get("/wallet-history", async (req, res) => {
   }
 });
 
-
-// === Iniciar servidor ===
+// ============================================
+// 🚀 INICIAR SERVIDOR (al final)
+// ============================================
 app.listen(PORT, () => {
   console.log(`✅ Servidor RayPay activo en http://localhost:${PORT} [${CLUSTER}]`);
+  console.log(`📍 Rutas disponibles: /, /routes, /create-payment, /confirm/:ref, /history, /rebuild-history, /wallet-history`);
 });
