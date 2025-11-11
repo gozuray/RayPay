@@ -11,8 +11,10 @@ const advanced = document.getElementById("advanced");
 let checkInterval = null;
 let currentReference = null;
 
-// 🌐 URL del backend (ajusta según tu despliegue)
-const API_URL = "https://raypaybackend.onrender.com";
+// 🌐 URL del backend (permite override con ?api=https://mi-backend)
+const API_URL =
+  new URLSearchParams(location.search).get("api") ||
+  "https://raypaybackend.onrender.com";
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -37,13 +39,9 @@ toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
 // === Función auxiliar: recorta decimales según token ===
 function clampDecimals(valueStr, decimals) {
-  let v = (valueStr || "")
-    .replace(",", ".")
-    .replace(/[^\d.]/g, "");
-
+  let v = (valueStr || "").replace(",", ".").replace(/[^\d.]/g, "");
   const parts = v.split(".");
   if (parts.length > 2) v = parts[0] + "." + parts.slice(1).join("");
-
   if (parts[1] && parts[1].length > decimals) {
     parts[1] = parts[1].slice(0, decimals);
     v = parts.join(".");
@@ -97,16 +95,32 @@ function showPaymentStatus(msg) {
   statusEl.textContent = msg;
 }
 
+// === Utilidad fetch robusta con error legible ===
+async function safeJsonFetch(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const msg = text || `HTTP ${res.status}`;
+    throw new Error(`Request failed: ${msg}`);
+  }
+  // intenta parsear json; si no es json válido lanza
+  try {
+    return await res.json();
+  } catch (e) {
+    const text = await (async () => {
+      try { return await res.text(); } catch { return ""; }
+    })();
+    throw new Error(`Respuesta no-JSON del backend: ${text.slice(0, 200)}`);
+  }
+}
+
 // === Consultar estado del pago (polling) ===
 async function checkPaymentStatus(reference) {
   if (!reference) return;
   try {
-    const response = await fetch(`${API_URL}/confirm/${reference}`);
-    if (!response.ok) return;
-
-    const data = await response.json();
+    const data = await safeJsonFetch(`${API_URL}/confirm/${reference}`);
     if (data.status === "pagado") {
-      showPaymentStatus(`✅ Pago confirmado (${data.signature.slice(0, 8)}...)`);
+      showPaymentStatus(`✅ Pago confirmado (${String(data.signature).slice(0, 8)}...)`);
       qrContainer.classList.add("confirmed"); // 💚 cambia niebla a verde
       ding.play();
       clearInterval(checkInterval);
@@ -151,8 +165,7 @@ btn.addEventListener("click", async () => {
 
   try {
     const fixedAmount = amount.toFixed(decimals);
-
-    const response = await fetch(`${API_URL}/create-payment`, {
+    const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -162,12 +175,6 @@ btn.addEventListener("click", async () => {
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Backend error: ${errorText}`);
-    }
-
-    const data = await response.json();
     if (!data.solana_url) {
       alert("Error: el backend no devolvió el link de pago.");
       return;
@@ -251,11 +258,62 @@ const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
 
+// helper: pintar tabla
+function renderHistoryTable(history) {
+  let html = `
+    <table style="width:100%; border-collapse:collapse; margin-top:15px;">
+      <tr style="background:#3b0764; color:#fff;">
+        <th style="padding:8px;">Hash</th>
+        <th style="padding:8px;">Monto</th>
+        <th style="padding:8px;">Token</th>
+        <th style="padding:8px;">Fecha</th>
+        <th style="padding:8px;">Hora</th>
+      </tr>
+  `;
+  history.forEach((tx) => {
+    const hash = tx.signature || tx.txHash || "";
+    html += `
+      <tr style="background:#1e0038; color:#c084fc;">
+        <td style="padding:6px;">${hash ? hash.slice(0, 8) + "..." : "N/A"}</td>
+        <td style="padding:6px;">${tx.amount ?? "-"}</td>
+        <td style="padding:6px;">${tx.token ?? "?"}</td>
+        <td style="padding:6px;">${tx.date ?? "?"}</td>
+        <td style="padding:6px;">${tx.time ?? "?"}</td>
+      </tr>
+    `;
+  });
+  html += "</table>";
+  historyContainer.innerHTML = html;
+}
+
 btnHistory.addEventListener("click", async () => {
+  historyContainer.innerHTML = "<p style='color:#aaa'>Cargando historial...</p>";
   try {
-    const res = await fetch(`${API_URL}/rebuild-history`);
-    const json = await res.json();
-    const history = json.data || json || [];
+    // 1) Preferimos /rebuild-history (usa referencias del QR)
+    let json = await safeJsonFetch(`${API_URL}/rebuild-history`);
+    let history = json?.data || [];
+
+    // 2) Si vacío, intentamos /history (persistido local)
+    if (!Array.isArray(history) || history.length === 0) {
+      json = await safeJsonFetch(`${API_URL}/history`);
+      if (Array.isArray(json) && json.length > 0) {
+        history = json;
+      }
+    }
+
+    // 3) Si aún vacío, probamos on-chain sin refs: /wallet-history
+    if (!Array.isArray(history) || history.length === 0) {
+      json = await safeJsonFetch(`${API_URL}/wallet-history?limit=100`);
+      if (Array.isArray(json?.data) && json.data.length > 0) {
+        history = json.data.map((r) => ({
+          txHash: r.txHash,
+          amount: r.amount,
+          token: r.token,
+          date: r.blockTime ? new Date(r.blockTime).toLocaleDateString() : "",
+          time: r.blockTime ? new Date(r.blockTime).toLocaleTimeString() : "",
+        }));
+      }
+    }
 
     if (!Array.isArray(history) || history.length === 0) {
       historyContainer.innerHTML =
@@ -263,36 +321,11 @@ btnHistory.addEventListener("click", async () => {
       return;
     }
 
-    let html = `
-      <table style="width:100%; border-collapse:collapse; margin-top:15px;">
-        <tr style="background:#3b0764; color:#fff;">
-          <th style="padding:8px;">Hash</th>
-          <th style="padding:8px;">Monto</th>
-          <th style="padding:8px;">Token</th>
-          <th style="padding:8px;">Fecha</th>
-          <th style="padding:8px;">Hora</th>
-        </tr>
-    `;
-
-    history.forEach((tx) => {
-      const hash = tx.signature || tx.txHash || "";
-      html += `
-        <tr style="background:#1e0038; color:#c084fc;">
-          <td style="padding:6px;">${hash ? hash.slice(0, 8) + "..." : "N/A"}</td>
-          <td style="padding:6px;">${tx.amount ?? "-"}</td>
-          <td style="padding:6px;">${tx.token ?? "?"}</td>
-          <td style="padding:6px;">${tx.date ?? "?"}</td>
-          <td style="padding:6px;">${tx.time ?? "?"}</td>
-        </tr>
-      `;
-    });
-
-    html += "</table>";
-    historyContainer.innerHTML = html;
+    renderHistoryTable(history);
   } catch (err) {
     console.error("Error obteniendo historial:", err);
     historyContainer.innerHTML =
-      "<p style='color:#f87171'>❌ Error al cargar historial</p>";
+      `<p style='color:#f87171'>❌ Error al cargar historial:<br>${err.message}</p>`;
   }
 });
 
