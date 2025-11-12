@@ -1,0 +1,252 @@
+import express from "express";
+import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
+import { encodeURL, findReference } from "@solana/pay";
+import BigNumber from "bignumber.js";
+import { getDB } from "../db.js";
+
+const router = express.Router();
+
+// ⚙️ Carga variables solo cuando la ruta se inicializa
+const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
+const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
+const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
+
+if (!MERCHANT_WALLET) {
+  console.error("⚠️ Falta MERCHANT_WALLET en .env (verifica)");
+}
+
+const USDC_MINTS = {
+  "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
+};
+
+const connection = new Connection(RPC_URL, {
+  commitment: "confirmed",
+  confirmTransactionInitialTimeout: 60000,
+});
+
+const toBN = (v) => new BigNumber(String(v));
+global.pendingPayments = {};
+
+// Home
+router.get("/", (_req, res) => {
+  res.send("RayPay Payments OK");
+});
+
+// Health (simple)
+router.get("/__health", (_req, res) => {
+  res.json({ ok: true, cluster: CLUSTER, now: new Date().toISOString() });
+});
+
+// Crear pago (QR)
+router.post("/create-payment", (req, res) => {
+  try {
+    let { amount, restaurant, token } = req.body;
+    if (amount === undefined || isNaN(Number(amount))) {
+      return res.status(400).json({ error: "Monto inválido" });
+    }
+    const chosenToken = token === "SOL" ? "SOL" : "USDC";
+    amount = parseFloat(amount).toFixed(chosenToken === "SOL" ? 5 : 3);
+
+    const usdcMint = USDC_MINTS[CLUSTER];
+    const reference = Keypair.generate().publicKey;
+    const amountBN = toBN(amount);
+
+    const url = encodeURL({
+      recipient: new PublicKey(MERCHANT_WALLET),
+      amount: amountBN,
+      splToken: chosenToken === "USDC" ? new PublicKey(usdcMint) : undefined,
+      label: restaurant || "Restaurante",
+      message: `Pago en ${chosenToken}`,
+      reference,
+    });
+
+    global.pendingPayments[reference.toBase58()] = {
+      amount: amountBN.toString(),
+      token: chosenToken,
+      created: new Date().toISOString(),
+      restaurant: restaurant || "Restaurante",
+    };
+
+    res.json({
+      success: true,
+      solana_url: url.toString(),
+      token: chosenToken,
+      cluster: CLUSTER,
+      reference: reference.toBase58(),
+    });
+  } catch (err) {
+    console.error("Error en /create-payment:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Confirmar y guardar en Mongo
+router.get("/confirm/:reference", async (req, res) => {
+  const { reference } = req.params;
+  const payment = global.pendingPayments[reference];
+  const db = getDB();
+  const payments = db.collection("payments");
+
+  if (!payment) return res.status(404).json({ error: "Referencia no encontrada" });
+
+  try {
+    const existing = await payments.findOne({ reference });
+    if (existing) {
+      return res.json({ status: "pagado", signature: existing.signature, fromCache: true });
+    }
+
+    const referenceKey = new PublicKey(reference);
+    const sigInfo = await findReference(connection, referenceKey, { finality: "confirmed" });
+    if (!sigInfo?.signature) return res.json({ status: "pendiente" });
+
+    const tx = await connection.getParsedTransaction(sigInfo.signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    if (!tx?.meta) return res.json({ status: "pendiente" });
+
+    const merchant = MERCHANT_WALLET;
+    const expectedAmount = parseFloat(payment.amount);
+    let received = 0;
+
+    if (payment.token === "SOL") {
+      const pre = tx.meta.preBalances;
+      const post = tx.meta.postBalances;
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const index = keys.indexOf(merchant);
+      if (index >= 0) received = (post[index] - pre[index]) / 1e9;
+    } else {
+      const usdcMint = USDC_MINTS[CLUSTER];
+      const postToken = tx.meta.postTokenBalances?.find((b) => b.owner === merchant && b.mint === usdcMint);
+      const preToken = tx.meta.preTokenBalances?.find((b) => b.owner === merchant && b.mint === usdcMint);
+      const postAmount = postToken?.uiTokenAmount?.uiAmount ?? 0;
+      const preAmount = preToken?.uiTokenAmount?.uiAmount ?? 0;
+      received = postAmount - preAmount;
+    }
+
+    if (received >= expectedAmount - 0.00001) {
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const payer = keys[0] || "desconocido";
+      const blockTime = tx.blockTime ? tx.blockTime * 1000 : Date.now();
+
+      const doc = {
+        signature: sigInfo.signature,
+        reference,
+        token: payment.token,
+        amount: Number(received.toFixed(payment.token === "SOL" ? 9 : 6)),
+        expectedAmount,
+        merchantWallet: merchant,
+        payer,
+        fee: tx.meta.fee / 1e9,
+        slot: tx.slot || 0,
+        blockTime,
+        date: new Date(blockTime).toLocaleDateString("es-ES"),
+        time: new Date(blockTime).toLocaleTimeString("es-ES"),
+        status: "success",
+        restaurant: payment.restaurant || "Restaurante",
+        cluster: CLUSTER,
+        createdAt: new Date(),
+      };
+
+      try {
+        await payments.insertOne(doc);
+      } catch (e) {
+        if (e.code !== 11000) console.error("Mongo insert error:", e);
+      }
+
+      delete global.pendingPayments[reference];
+      return res.json({ status: "pagado", signature: sigInfo.signature, amount: received, savedToDatabase: true });
+    } else {
+      return res.json({ status: "pendiente" });
+    }
+  } catch (err) {
+    if (err.message?.includes("not found")) return res.json({ status: "pendiente" });
+    console.error("confirm:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Historial desde Mongo (mismo endpoint que tu front ya usa)
+router.get("/transactions", async (req, res) => {
+  try {
+    const db = getDB();
+    const payments = db.collection("payments");
+
+    const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
+    const filterToken = req.query.token?.toUpperCase();
+    const skip = parseInt(req.query.skip || "0", 10);
+
+    const filter = { merchantWallet: MERCHANT_WALLET };
+    if (filterToken && (filterToken === "SOL" || filterToken === "USDC")) {
+      filter.token = filterToken;
+    }
+
+    const rows = await payments.find(filter).sort({ blockTime: -1 }).skip(skip).limit(limit).toArray();
+    const total = await payments.countDocuments(filter);
+
+    const stats = await payments
+      .aggregate([{ $match: filter }, { $group: { _id: "$token", total: { $sum: "$amount" }, count: { $sum: 1 } } }])
+      .toArray();
+    const totals = {
+      SOL: stats.find((s) => s._id === "SOL")?.total || 0,
+      USDC: stats.find((s) => s._id === "USDC")?.total || 0,
+    };
+
+    res.json({
+      data: rows.map((tx) => ({
+        signature: tx.signature,
+        token: tx.token,
+        amount: tx.amount,
+        payer: tx.payer,
+        fee: tx.fee,
+        slot: tx.slot,
+        blockTime: tx.blockTime,
+        date: tx.date,
+        time: tx.time,
+        status: tx.status,
+        restaurant: tx.restaurant,
+      })),
+      total,
+      returned: rows.length,
+      filterToken: filterToken || "all",
+      totals,
+    });
+  } catch (e) {
+    console.error("transactions:", e);
+    res.status(500).json({ error: e.message, data: [], total: 0 });
+  }
+});
+
+// CSV
+router.get("/transactions/download", async (req, res) => {
+  try {
+    const db = getDB();
+    const payments = db.collection("payments");
+
+    const filterToken = req.query.token?.toUpperCase();
+    const filter = { merchantWallet: process.env.MERCHANT_WALLET };
+    if (filterToken && (filterToken === "SOL" || filterToken === "USDC")) filter.token = filterToken;
+
+    const txs = await payments.find(filter).sort({ blockTime: -1 }).limit(500).toArray();
+    if (txs.length === 0) return res.status(404).send("No hay transacciones para descargar");
+
+    const csv =
+      "Signature,Token,Monto,Pagador,Fee,Slot,Fecha,Hora,Estado,Restaurante\n" +
+      txs
+        .map(
+          (t) =>
+            `"${t.signature}","${t.token}","${t.amount}","${t.payer}","${t.fee}","${t.slot}","${t.date}","${t.time}","${t.status}","${t.restaurant || "N/A"}"`
+        )
+        .join("\n");
+
+    res.header("Content-Type", "text/csv; charset=utf-8");
+    res.attachment(`transacciones_${new Date().toISOString().split("T")[0]}.csv`);
+    res.send(csv);
+  } catch (e) {
+    console.error("csv:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+export default router;
