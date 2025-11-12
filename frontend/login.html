@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>RayPay - Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="card">
+
+        <h2 style="margin-bottom: 20px;">🔐 Iniciar Sesión</h2>
+
+        <input
+          id="email"
+          type="email"
+          placeholder="Correo electrónico"
+          autocomplete="email"
+        />
+
+        <input
+          id="password"
+          type="password"
+          placeholder="Contraseña"
+          autocomplete="current-password"
+        />
+
+        <button id="btnLogin">Ingresar</button>
+
+        <p id="errorMsg" style="color:#ff7b7b; margin-top:12px; display:none;"></p>
+      </div>
+    </div>
+
+    <footer>Hecho con 💜 por Ray | Solana Network</footer>
+
+    <script src="login.js"></script>
+  </body>
+</html>
