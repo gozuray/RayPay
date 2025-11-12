@@ -1,17 +1,26 @@
-const API_URL = "https://raypay-backend.onrender.com"; 
-// si usas Render, cambia arriba por:
-// const API_URL = "https://tu-backend.onrender.com/api/auth/login";
+document.body.style.display = "block";
+
+// 👉 URL del backend en Render (cámbiala si tu backend tiene otro nombre)
+const API_BASE = "https://raypay-backend.onrender.com";
+const LOGIN_URL = `${API_BASE}/api/auth/login`;
 
 const btn = document.getElementById("btnLogin");
 const errorMsg = document.getElementById("errorMsg");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
 
-btn.addEventListener("click", login);
+btn.addEventListener("click", handleLogin);
 
-async function login() {
+function showError(message) {
+  errorMsg.innerText = message;
+  errorMsg.style.display = "block";
+}
+
+async function handleLogin() {
   errorMsg.style.display = "none";
 
-  const email = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value.trim();
+  const email = emailInput.value.trim();
+  const password = passwordInput.value.trim();
 
   if (!email || !password) {
     showError("Completa todos los campos");
@@ -22,35 +31,35 @@ async function login() {
   btn.innerText = "Ingresando...";
 
   try {
-    const res = await fetch(API_URL, {
+    console.log("Enviando login a:", LOGIN_URL);
+
+    const res = await fetch(LOGIN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+
+    console.log("Respuesta login:", res.status, data);
 
     if (!res.ok) {
       showError(data.error || "Error al iniciar sesión");
       return;
     }
 
-    // ✔ Guardamos el token
+    // Guardar token
     localStorage.setItem("raypay_token", data.token);
     localStorage.setItem("raypay_user", JSON.stringify(data.user));
 
-    // ✔ Redirigimos al POS
+    // Redirigir
     window.location.href = "index.html";
 
-  } catch (e) {
-    showError("Error conectando con el servidor");
+  } catch (err) {
+    console.error("Error login:", err);
+    showError("No se puede conectar al servidor");
   } finally {
     btn.disabled = false;
     btn.innerText = "Ingresar";
   }
-}
-
-function showError(msg) {
-  errorMsg.innerText = msg;
-  errorMsg.style.display = "block";
 }
