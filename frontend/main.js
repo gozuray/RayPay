@@ -508,3 +508,4 @@ btnDownload.addEventListener("click", () => {
 });
 
 historyContainer.style.marginBottom = "40px";
+document.body.style.display = "block";
