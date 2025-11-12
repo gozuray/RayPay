@@ -106,7 +106,11 @@ async function safeJsonFetch(url, options) {
     return await res.json();
   } catch {
     const text = await (async () => {
-      try { return await res.text(); } catch { return ""; }
+      try {
+        return await res.text();
+      } catch {
+        return "";
+      }
     })();
     throw new Error(`Respuesta no-JSON: ${text.slice(0, 200)}`);
   }
@@ -129,7 +133,9 @@ async function checkPaymentStatus(reference) {
   try {
     const data = await safeJsonFetch(`${API_URL}/confirm/${reference}`);
     if (data.status === "pagado") {
-      showPaymentStatus(`✅ Pago confirmado (${String(data.signature).slice(0, 8)}...)`);
+      showPaymentStatus(
+        `✅ Pago confirmado ${data.savedToDatabase ? '(guardado en BD)' : '(desde cache)'} (${String(data.signature).slice(0, 8)}...)`
+      );
       qrContainer.classList.add("confirmed");
       ding.play();
       clearInterval(checkInterval);
@@ -246,7 +252,7 @@ btn.addEventListener("click", async () => {
     currentReference = data.reference;
     checkInterval = setInterval(() => {
       checkPaymentStatus(currentReference);
-    }, 10000);
+    }, 8000); // Cada 8 segundos (más rápido ahora)
   } catch (err) {
     console.error("Error generando QR:", err);
     alert(`❌ No se pudo conectar al backend.\n\n${err.message}`);
@@ -256,7 +262,7 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === 📜 HISTORIAL CON FILTROS Y DATOS MEJORADOS ===
+// === 📜 HISTORIAL DESDE MONGODB ===
 const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
@@ -264,24 +270,18 @@ const historyContainer = document.getElementById("historyContainer");
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
 // 🎨 Renderizar tabla mejorada
-function renderHistoryTable(transactions) {
-  if (!transactions || transactions.length === 0) {
+function renderHistoryTable(data) {
+  if (!data || !data.data || data.data.length === 0) {
     historyContainer.innerHTML = `
       <p style='color: #fbbf24; padding: 20px;'>
-        ⚠️ No hay transacciones ${currentFilter !== 'all' ? 'de ' + currentFilter : ''}
+        ⚠️ No hay transacciones ${currentFilter !== "all" ? "de " + currentFilter : ""}
       </p>
     `;
     return;
   }
 
-  // Calcular totales
-  const totalUSDC = transactions
-    .filter(t => t.token === 'USDC')
-    .reduce((sum, t) => sum + t.amount, 0);
-  
-  const totalSOL = transactions
-    .filter(t => t.token === 'SOL')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const transactions = data.data;
+  const totals = data.totals || { SOL: 0, USDC: 0 };
 
   let html = `
     <!-- Filtros -->
@@ -295,38 +295,38 @@ function renderHistoryTable(transactions) {
       <button onclick="filterTransactions('all')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === 'all' ? '#c084fc' : '#3b0764'};
-        background: ${currentFilter === 'all' ? '#6d28d9' : 'transparent'};
+        border: 2px solid ${currentFilter === "all" ? "#c084fc" : "#3b0764"};
+        background: ${currentFilter === "all" ? "#6d28d9" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.3s;
       ">
-        📊 Todos (${transactions.length})
+        📊 Todos (${data.total})
       </button>
       <button onclick="filterTransactions('USDC')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === 'USDC' ? '#c084fc' : '#3b0764'};
-        background: ${currentFilter === 'USDC' ? '#6d28d9' : 'transparent'};
+        border: 2px solid ${currentFilter === "USDC" ? "#c084fc" : "#3b0764"};
+        background: ${currentFilter === "USDC" ? "#6d28d9" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.3s;
       ">
-        💵 USDC (${transactions.filter(t => t.token === 'USDC').length})
+        💵 USDC
       </button>
       <button onclick="filterTransactions('SOL')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === 'SOL' ? '#14f195' : '#3b0764'};
-        background: ${currentFilter === 'SOL' ? '#047857' : 'transparent'};
+        border: 2px solid ${currentFilter === "SOL" ? "#14f195" : "#3b0764"};
+        background: ${currentFilter === "SOL" ? "#047857" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.3s;
       ">
-        ⚡ SOL (${transactions.filter(t => t.token === 'SOL').length})
+        ⚡ SOL
       </button>
     </div>
 
@@ -344,13 +344,19 @@ function renderHistoryTable(transactions) {
       <div style="text-align: center;">
         <div style="color: #9ca3af; font-size: 0.8rem;">Total USDC</div>
         <div style="color: #c084fc; font-size: 1.2rem; font-weight: 600;">
-          ${totalUSDC.toFixed(2)}
+          ${totals.USDC.toFixed(2)}
         </div>
       </div>
       <div style="text-align: center;">
         <div style="color: #9ca3af; font-size: 0.8rem;">Total SOL</div>
         <div style="color: #14f195; font-size: 1.2rem; font-weight: 600;">
-          ${totalSOL.toFixed(5)}
+          ${totals.SOL.toFixed(5)}
+        </div>
+      </div>
+      <div style="text-align: center;">
+        <div style="color: #9ca3af; font-size: 0.8rem;">Transacciones</div>
+        <div style="color: #fbbf24; font-size: 1.2rem; font-weight: 600;">
+          ${data.total}
         </div>
       </div>
     </div>
@@ -386,9 +392,13 @@ function renderHistoryTable(transactions) {
 
   transactions.forEach((tx, index) => {
     const bgColor = index % 2 === 0 ? "#1e0038" : "#2a0048";
-    const shortSig = tx.signature ? `${tx.signature.slice(0, 8)}...${tx.signature.slice(-4)}` : "N/A";
-    const shortPayer = tx.payer ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}` : "N/A";
-    
+    const shortSig = tx.signature
+      ? `${tx.signature.slice(0, 8)}...${tx.signature.slice(-4)}`
+      : "N/A";
+    const shortPayer = tx.payer
+      ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
+      : "N/A";
+
     html += `
       <tr style="background: ${bgColor}; color: #c084fc; transition: background 0.2s;"
           onmouseover="this.style.background='#3b0764'" 
@@ -406,7 +416,7 @@ function renderHistoryTable(transactions) {
         </td>
         <td style="padding: 8px; text-align: center;">
           <span style="
-            background: ${tx.token === 'SOL' ? '#14f195' : '#c084fc'};
+            background: ${tx.token === "SOL" ? "#14f195" : "#c084fc"};
             color: #0a0018;
             padding: 3px 10px;
             border-radius: 4px;
@@ -418,7 +428,7 @@ function renderHistoryTable(transactions) {
           ${shortPayer}
         </td>
         <td style="padding: 8px; text-align: right; color: #fbbf24; font-size: 0.75rem;">
-          ${tx.fee} SOL
+          ${tx.fee.toFixed(6)} SOL
         </td>
         <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
           ${tx.date}
@@ -434,6 +444,9 @@ function renderHistoryTable(transactions) {
         </tbody>
       </table>
     </div>
+    <div style="margin-top: 15px; text-align: center; color: #9ca3af; font-size: 0.85rem;">
+      ✅ Datos obtenidos desde MongoDB Cloud
+    </div>
   `;
 
   historyContainer.innerHTML = html;
@@ -445,15 +458,16 @@ window.filterTransactions = async (filter) => {
   await loadTransactions(filter);
 };
 
-// 📥 Cargar transacciones
+// 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
-  historyContainer.innerHTML = "<p style='color:#aaa; padding: 20px;'>🔄 Cargando transacciones...</p>";
+  historyContainer.innerHTML =
+    "<p style='color:#aaa; padding: 20px;'>🔄 Cargando desde MongoDB...</p>";
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
-  const result = await tryJson(`${API_URL}/transactions?limit=30${tokenParam}`);
+  const result = await tryJson(`${API_URL}/transactions?limit=50${tokenParam}`);
 
-  if (result.ok && result.data.data) {
-    renderHistoryTable(result.data.data);
+  if (result.ok && result.data) {
+    renderHistoryTable(result.data);
   } else {
     historyContainer.innerHTML = `
       <div style="padding: 20px; background: #1e0038; border-radius: 8px; margin-top: 15px;">
@@ -461,7 +475,7 @@ async function loadTransactions(filter = "all") {
           ❌ Error cargando transacciones
         </p>
         <p style='color: #9ca3af; font-size: 0.9rem; margin-top: 10px;'>
-          ${result.error || 'Error desconocido'}
+          ${result.error || "Error desconocido"}
         </p>
       </div>
     `;

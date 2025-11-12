@@ -4,13 +4,58 @@ import { PublicKey, Connection, clusterApiUrl, Keypair } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import dotenv from "dotenv";
+import { MongoClient, ServerApiVersion } from "mongodb";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// === CORS ===
+// ============================================
+// 🔹 CONFIGURACIÓN MONGODB
+// ============================================
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  throw new Error("❌ Falta MONGODB_URI en .env");
+}
+
+const mongoClient = new MongoClient(MONGODB_URI, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
+});
+
+let db;
+let paymentsCollection;
+
+// Conectar a MongoDB
+async function connectMongo() {
+  try {
+    await mongoClient.connect();
+    await mongoClient.db("admin").command({ ping: 1 });
+    console.log("✅ Conectado a MongoDB Atlas");
+    
+    db = mongoClient.db("raypay");
+    paymentsCollection = db.collection("payments");
+    
+    // Crear índices para búsquedas eficientes
+    await paymentsCollection.createIndex({ signature: 1 }, { unique: true });
+    await paymentsCollection.createIndex({ blockTime: -1 });
+    await paymentsCollection.createIndex({ token: 1 });
+    await paymentsCollection.createIndex({ merchantWallet: 1 });
+    
+    console.log("✅ Base de datos 'raypay' lista");
+  } catch (err) {
+    console.error("❌ Error conectando a MongoDB:", err);
+    process.exit(1);
+  }
+}
+
+// ============================================
+// 🔹 CONFIGURACIÓN SOLANA
+// ============================================
 app.use(
   cors({
     origin: [
@@ -27,7 +72,6 @@ app.use(
 );
 app.use(express.json());
 
-// === Configuración ===
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
 if (!MERCHANT_WALLET) throw new Error("❌ Falta MERCHANT_WALLET en .env");
@@ -37,18 +81,19 @@ const USDC_MINTS = {
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
 };
 
-// 🔥 USAR HELIUS RPC (más rápido que el público)
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
-const connection = new Connection(RPC_URL, { 
+const connection = new Connection(RPC_URL, {
   commitment: "confirmed",
   confirmTransactionInitialTimeout: 60000
 });
 
-console.log(`🌐 Usando RPC: ${RPC_URL}`);
+console.log(`🌐 Cluster: ${CLUSTER}`);
+console.log(`🌐 RPC: ${RPC_URL}`);
+console.log(`💼 Merchant: ${MERCHANT_WALLET}`);
 
 const toBN = (v) => new BigNumber(String(v));
 
-// Cache temporal
+// Cache temporal para pagos pendientes
 global.pendingPayments = {};
 
 // ============================================
@@ -56,7 +101,7 @@ global.pendingPayments = {};
 // ============================================
 
 app.get("/", (_req, res) => {
-  res.send("✅ RayPay backend - Helius RPC optimizado");
+  res.send("✅ RayPay Backend - MongoDB Cloud Edition");
 });
 
 app.get("/__health", (_req, res) => {
@@ -64,12 +109,14 @@ app.get("/__health", (_req, res) => {
     ok: true,
     cluster: CLUSTER,
     merchant: MERCHANT_WALLET,
-    rpcUrl: RPC_URL.includes("helius") ? "Helius RPC" : "Public RPC",
+    mongodb: mongoClient.topology?.isConnected() ? "connected" : "disconnected",
     now: new Date().toISOString(),
   });
 });
 
-// === Crear pago (QR) ===
+// ============================================
+// 🔹 CREAR PAGO (QR)
+// ============================================
 app.post("/create-payment", (req, res) => {
   try {
     let { amount, restaurant, token } = req.body;
@@ -97,6 +144,7 @@ app.post("/create-payment", (req, res) => {
       amount: amountBN.toString(),
       token: chosenToken,
       created: new Date().toISOString(),
+      restaurant: restaurant || "Restaurante Lisboa",
     };
 
     res.json({
@@ -114,208 +162,200 @@ app.post("/create-payment", (req, res) => {
   }
 });
 
-// === Confirmar pago ===
+// ============================================
+// 🔹 CONFIRMAR PAGO Y GUARDAR EN MONGODB
+// ============================================
 app.get("/confirm/:reference", async (req, res) => {
   const { reference } = req.params;
   const payment = global.pendingPayments[reference];
-  if (!payment) return res.status(404).json({ error: "Referencia no encontrada" });
+  
+  if (!payment) {
+    return res.status(404).json({ error: "Referencia no encontrada" });
+  }
 
   try {
+    // 1. Verificar si ya existe en la BD
+    const existing = await paymentsCollection.findOne({ reference });
+    if (existing) {
+      return res.json({ 
+        status: "pagado", 
+        signature: existing.signature,
+        fromCache: true 
+      });
+    }
+
+    // 2. Buscar en la blockchain
     const referenceKey = new PublicKey(reference);
-    const sigInfo = await findReference(connection, referenceKey, { finality: "confirmed" });
-
-    if (!sigInfo?.signature) return res.json({ status: "pendiente" });
-
-    const tx = await connection.getParsedTransaction(sigInfo.signature, { 
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0 
+    const sigInfo = await findReference(connection, referenceKey, { 
+      finality: "confirmed" 
     });
-    
-    if (!tx?.meta) return res.json({ status: "pendiente" });
+
+    if (!sigInfo?.signature) {
+      return res.json({ status: "pendiente" });
+    }
+
+    // 3. Obtener detalles de la transacción
+    const tx = await connection.getParsedTransaction(sigInfo.signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0
+    });
+
+    if (!tx?.meta) {
+      return res.json({ status: "pendiente" });
+    }
 
     const merchant = MERCHANT_WALLET;
     const expectedAmount = parseFloat(payment.amount);
     let received = 0;
 
+    // Calcular monto recibido
     if (payment.token === "SOL") {
       const pre = tx.meta.preBalances;
       const post = tx.meta.postBalances;
       const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
       const index = keys.indexOf(merchant);
-      if (index >= 0) received = (post[index] - pre[index]) / 1e9;
+      if (index >= 0) {
+        received = (post[index] - pre[index]) / 1e9;
+      }
     } else {
-      const postToken = tx.meta.postTokenBalances?.find((b) => b.owner === merchant);
-      const preToken = tx.meta.preTokenBalances?.find((b) => b.owner === merchant);
+      const usdcMint = USDC_MINTS[CLUSTER];
+      const postToken = tx.meta.postTokenBalances?.find(
+        (b) => b.owner === merchant && b.mint === usdcMint
+      );
+      const preToken = tx.meta.preTokenBalances?.find(
+        (b) => b.owner === merchant && b.mint === usdcMint
+      );
       const postAmount = postToken?.uiTokenAmount?.uiAmount ?? 0;
       const preAmount = preToken?.uiTokenAmount?.uiAmount ?? 0;
       received = postAmount - preAmount;
     }
 
+    // 4. Verificar si el pago es válido
     if (received >= expectedAmount - 0.00001) {
-      console.log(`✅ Pago confirmado: ${payment.amount} ${payment.token}`);
-      return res.json({ status: "pagado", signature: sigInfo.signature });
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const payer = keys[0] || "desconocido";
+      const blockTime = tx.blockTime ? tx.blockTime * 1000 : Date.now();
+
+      // 5. Guardar en MongoDB
+      const paymentDoc = {
+        signature: sigInfo.signature,
+        reference: reference,
+        token: payment.token,
+        amount: Number(received.toFixed(payment.token === "SOL" ? 9 : 6)),
+        expectedAmount: expectedAmount,
+        merchantWallet: merchant,
+        payer: payer,
+        fee: tx.meta.fee / 1e9,
+        slot: tx.slot || 0,
+        blockTime: blockTime,
+        date: new Date(blockTime).toLocaleDateString("es-ES"),
+        time: new Date(blockTime).toLocaleTimeString("es-ES"),
+        status: "success",
+        restaurant: payment.restaurant || "Restaurante Lisboa",
+        cluster: CLUSTER,
+        createdAt: new Date(),
+      };
+
+      try {
+        await paymentsCollection.insertOne(paymentDoc);
+        console.log(`✅ Pago guardado en MongoDB: ${sigInfo.signature.slice(0, 8)}...`);
+      } catch (dbErr) {
+        // Si falla por duplicado, no es problema
+        if (dbErr.code !== 11000) {
+          console.error("Error guardando en MongoDB:", dbErr);
+        }
+      }
+
+      // Limpiar cache
+      delete global.pendingPayments[reference];
+
+      return res.json({ 
+        status: "pagado", 
+        signature: sigInfo.signature,
+        amount: received,
+        savedToDatabase: true
+      });
     } else {
       return res.json({ status: "pendiente" });
     }
   } catch (err) {
-    if (err.message?.includes("not found")) return res.json({ status: "pendiente" });
+    if (err.message?.includes("not found")) {
+      return res.json({ status: "pendiente" });
+    }
     console.error("Error verificando pago:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// === 🔥 HISTORIAL (método optimizado con Helius RPC) ===
+// ============================================
+// 🔹 OBTENER HISTORIAL DESDE MONGODB
+// ============================================
 app.get("/transactions", async (req, res) => {
   try {
-    const merchant = new PublicKey(MERCHANT_WALLET);
-    const limit = Math.min(parseInt(req.query.limit || "20", 10), 50);
+    const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
     const filterToken = req.query.token?.toUpperCase();
-    const usdcMint = USDC_MINTS[CLUSTER];
+    const skip = parseInt(req.query.skip || "0", 10);
 
-    console.log(`⏳ Obteniendo ${limit} transacciones de ${MERCHANT_WALLET.slice(0, 8)}...`);
-
-    // 1️⃣ Obtener firmas (1 llamada)
-    const signatures = await connection.getSignaturesForAddress(merchant, { 
-      limit 
-    });
-
-    console.log(`📦 ${signatures.length} firmas obtenidas`);
-
-    if (signatures.length === 0) {
-      return res.json({ 
-        data: [], 
-        total: 0,
-        message: "No hay transacciones en esta wallet"
-      });
+    // Construir filtro
+    const filter = { merchantWallet: MERCHANT_WALLET };
+    if (filterToken && (filterToken === "SOL" || filterToken === "USDC")) {
+      filter.token = filterToken;
     }
 
-    // 2️⃣ Procesar en lotes de 5 (conservador para evitar 429)
-    const batchSize = 5;
-    const transactions = [];
-    
-    for (let i = 0; i < signatures.length; i += batchSize) {
-      const batch = signatures.slice(i, i + batchSize);
-      const sigs = batch.map(s => s.signature);
-      
-      console.log(`📤 Procesando lote ${Math.floor(i/batchSize) + 1}/${Math.ceil(signatures.length/batchSize)}...`);
-      
-      // Pausa entre lotes (excepto el primero)
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    console.log(`📊 Obteniendo transacciones desde MongoDB...`);
 
-      // Obtener transacciones parseadas
-      const txs = await connection.getParsedTransactions(sigs, {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0
-      });
+    // Obtener transacciones
+    const transactions = await paymentsCollection
+      .find(filter)
+      .sort({ blockTime: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
 
-      // Procesar cada transacción
-      for (let j = 0; j < txs.length; j++) {
-        const tx = txs[j];
-        if (!tx?.meta) continue;
+    // Obtener totales
+    const totalCount = await paymentsCollection.countDocuments(filter);
 
-        // Solo transacciones exitosas
-        if (tx.meta.err !== null) continue;
-
-        const sig = batch[j].signature;
-        const blockTime = batch[j].blockTime ? batch[j].blockTime * 1000 : Date.now();
-        
-        const keys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
-        const merchantIndex = keys.indexOf(merchant.toBase58());
-        
-        // Wallet del pagador (primer signer)
-        const payer = tx.transaction.message.accountKeys[0]?.pubkey?.toBase58() || "desconocido";
-        
-        // Fee
-        const fee = tx.meta.fee / 1e9;
-
-        // 💰 Detectar SOL recibido
-        if (merchantIndex >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
-          const solReceived = (tx.meta.postBalances[merchantIndex] - tx.meta.preBalances[merchantIndex]) / 1e9;
-          
-          if (solReceived > 0) {
-            transactions.push({
-              signature: sig,
-              token: "SOL",
-              amount: Number(solReceived.toFixed(9)),
-              payer: payer,
-              fee: Number(fee.toFixed(9)),
-              slot: tx.slot || 0,
-              blockTime: blockTime,
-              date: new Date(blockTime).toLocaleDateString('es-ES'),
-              time: new Date(blockTime).toLocaleTimeString('es-ES'),
-              status: "success",
-            });
-            console.log(`  ✅ SOL: ${solReceived.toFixed(5)}`);
-          }
-        }
-
-        // 💵 Detectar USDC recibido
-        const preToken = tx.meta.preTokenBalances?.find(b => 
-          b.owner === merchant.toBase58() && b.mint === usdcMint
-        );
-        const postToken = tx.meta.postTokenBalances?.find(b => 
-          b.owner === merchant.toBase58() && b.mint === usdcMint
-        );
-        
-        if (preToken && postToken) {
-          const preAmt = preToken.uiTokenAmount?.uiAmount ?? 0;
-          const postAmt = postToken.uiTokenAmount?.uiAmount ?? 0;
-          const usdcReceived = postAmt - preAmt;
-
-          if (usdcReceived > 0) {
-            transactions.push({
-              signature: sig,
-              token: "USDC",
-              amount: Number(usdcReceived.toFixed(6)),
-              payer: payer,
-              fee: Number(fee.toFixed(9)),
-              slot: tx.slot || 0,
-              blockTime: blockTime,
-              date: new Date(blockTime).toLocaleDateString('es-ES'),
-              time: new Date(blockTime).toLocaleTimeString('es-ES'),
-              status: "success",
-            });
-            console.log(`  ✅ USDC: ${usdcReceived.toFixed(2)}`);
-          }
+    // Calcular estadísticas
+    const stats = await paymentsCollection.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: "$token",
+          total: { $sum: "$amount" },
+          count: { $sum: 1 }
         }
       }
-    }
+    ]).toArray();
 
-    // Filtrar por token si se especifica
-    let filtered = transactions;
-    if (filterToken) {
-      filtered = transactions.filter(t => t.token === filterToken);
-    }
+    const totals = {
+      SOL: stats.find(s => s._id === "SOL")?.total || 0,
+      USDC: stats.find(s => s._id === "USDC")?.total || 0,
+    };
 
-    // Ordenar por fecha (más recientes primero)
-    filtered.sort((a, b) => b.blockTime - a.blockTime);
-
-    console.log(`✅ ${filtered.length} transacciones procesadas`);
+    console.log(`✅ ${transactions.length} transacciones obtenidas de MongoDB`);
 
     return res.json({
-      data: filtered,
-      total: filtered.length,
-      processed: signatures.length,
+      data: transactions.map(tx => ({
+        signature: tx.signature,
+        token: tx.token,
+        amount: tx.amount,
+        payer: tx.payer,
+        fee: tx.fee,
+        slot: tx.slot,
+        blockTime: tx.blockTime,
+        date: tx.date,
+        time: tx.time,
+        status: tx.status,
+        restaurant: tx.restaurant,
+      })),
+      total: totalCount,
+      returned: transactions.length,
       filtered: filterToken ? true : false,
       filterToken: filterToken || "all",
+      totals: totals,
     });
-
   } catch (err) {
     console.error("❌ Error en /transactions:", err);
-    
-    // Manejo de rate limit
-    if (String(err?.message || "").includes("429") || 
-        String(err?.message || "").includes("Too Many Requests")) {
-      return res.json({
-        data: [],
-        total: 0,
-        error: "rate_limited",
-        message: "RPC temporalmente saturado. Intenta de nuevo en unos segundos.",
-      });
-    }
-
     return res.status(500).json({
       error: err.message,
       data: [],
@@ -324,24 +364,37 @@ app.get("/transactions", async (req, res) => {
   }
 });
 
-// === Descargar CSV ===
+// ============================================
+// 🔹 DESCARGAR CSV
+// ============================================
 app.get("/transactions/download", async (req, res) => {
   try {
-    const response = await fetch(`http://localhost:${PORT}/transactions?limit=50`);
-    const data = await response.json();
+    const filterToken = req.query.token?.toUpperCase();
+    const filter = { merchantWallet: MERCHANT_WALLET };
+    if (filterToken && (filterToken === "SOL" || filterToken === "USDC")) {
+      filter.token = filterToken;
+    }
 
-    if (!data.data || data.data.length === 0) {
+    const transactions = await paymentsCollection
+      .find(filter)
+      .sort({ blockTime: -1 })
+      .limit(500)
+      .toArray();
+
+    if (transactions.length === 0) {
       return res.status(404).send("No hay transacciones para descargar");
     }
 
     const csv =
-      "Signature,Token,Monto,Pagador,Fee,Slot,Fecha,Hora,Estado\n" +
-      data.data.map((tx) => 
-        `"${tx.signature}","${tx.token}","${tx.amount}","${tx.payer}","${tx.fee}","${tx.slot}","${tx.date}","${tx.time}","${tx.status}"`
-      ).join("\n");
+      "Signature,Token,Monto,Pagador,Fee,Slot,Fecha,Hora,Estado,Restaurante\n" +
+      transactions
+        .map((tx) =>
+          `"${tx.signature}","${tx.token}","${tx.amount}","${tx.payer}","${tx.fee}","${tx.slot}","${tx.date}","${tx.time}","${tx.status}","${tx.restaurant || "N/A"}"`
+        )
+        .join("\n");
 
     res.header("Content-Type", "text/csv; charset=utf-8");
-    res.attachment(`transacciones_${new Date().toISOString().split('T')[0]}.csv`);
+    res.attachment(`transacciones_${new Date().toISOString().split("T")[0]}.csv`);
     res.send(csv);
   } catch (err) {
     console.error("Error generando CSV:", err);
@@ -350,10 +403,136 @@ app.get("/transactions/download", async (req, res) => {
 });
 
 // ============================================
+// 🔹 SINCRONIZAR PAGOS DESDE BLOCKCHAIN (ADMIN)
+// ============================================
+app.post("/admin/sync-blockchain", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || "20", 10), 50);
+    const merchant = new PublicKey(MERCHANT_WALLET);
+    const usdcMint = USDC_MINTS[CLUSTER];
+
+    console.log(`🔄 Sincronizando últimas ${limit} transacciones...`);
+
+    const signatures = await connection.getSignaturesForAddress(merchant, { limit });
+    
+    let syncedCount = 0;
+    let skippedCount = 0;
+
+    for (const sigInfo of signatures) {
+      // Verificar si ya existe
+      const exists = await paymentsCollection.findOne({ 
+        signature: sigInfo.signature 
+      });
+      
+      if (exists) {
+        skippedCount++;
+        continue;
+      }
+
+      // Obtener detalles
+      const tx = await connection.getParsedTransaction(sigInfo.signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0
+      });
+
+      if (!tx?.meta || tx.meta.err !== null) continue;
+
+      const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+      const merchantIndex = keys.indexOf(merchant.toBase58());
+      const payer = keys[0] || "desconocido";
+      const blockTime = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now();
+
+      // Detectar SOL
+      if (merchantIndex >= 0 && tx.meta.preBalances && tx.meta.postBalances) {
+        const solReceived = (tx.meta.postBalances[merchantIndex] - tx.meta.preBalances[merchantIndex]) / 1e9;
+        
+        if (solReceived > 0) {
+          await paymentsCollection.insertOne({
+            signature: sigInfo.signature,
+            reference: null,
+            token: "SOL",
+            amount: Number(solReceived.toFixed(9)),
+            merchantWallet: MERCHANT_WALLET,
+            payer: payer,
+            fee: tx.meta.fee / 1e9,
+            slot: tx.slot || 0,
+            blockTime: blockTime,
+            date: new Date(blockTime).toLocaleDateString("es-ES"),
+            time: new Date(blockTime).toLocaleTimeString("es-ES"),
+            status: "success",
+            restaurant: "Sincronizado",
+            cluster: CLUSTER,
+            createdAt: new Date(),
+          });
+          syncedCount++;
+        }
+      }
+
+      // Detectar USDC
+      const preToken = tx.meta.preTokenBalances?.find(
+        (b) => b.owner === merchant.toBase58() && b.mint === usdcMint
+      );
+      const postToken = tx.meta.postTokenBalances?.find(
+        (b) => b.owner === merchant.toBase58() && b.mint === usdcMint
+      );
+
+      if (preToken && postToken) {
+        const usdcReceived = (postToken.uiTokenAmount?.uiAmount ?? 0) - (preToken.uiTokenAmount?.uiAmount ?? 0);
+
+        if (usdcReceived > 0) {
+          await paymentsCollection.insertOne({
+            signature: sigInfo.signature,
+            reference: null,
+            token: "USDC",
+            amount: Number(usdcReceived.toFixed(6)),
+            merchantWallet: MERCHANT_WALLET,
+            payer: payer,
+            fee: tx.meta.fee / 1e9,
+            slot: tx.slot || 0,
+            blockTime: blockTime,
+            date: new Date(blockTime).toLocaleDateString("es-ES"),
+            time: new Date(blockTime).toLocaleTimeString("es-ES"),
+            status: "success",
+            restaurant: "Sincronizado",
+            cluster: CLUSTER,
+            createdAt: new Date(),
+          });
+          syncedCount++;
+        }
+      }
+
+      // Pausa para evitar rate limit
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    console.log(`✅ Sincronización completa: ${syncedCount} nuevas, ${skippedCount} duplicadas`);
+
+    return res.json({
+      success: true,
+      synced: syncedCount,
+      skipped: skippedCount,
+      total: signatures.length,
+    });
+  } catch (err) {
+    console.error("❌ Error sincronizando:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // 🚀 INICIAR SERVIDOR
 // ============================================
-app.listen(PORT, () => {
-  console.log(`✅ RayPay activo en puerto ${PORT} [${CLUSTER}]`);
-  console.log(`🌐 RPC: ${RPC_URL.includes("helius") ? "Helius (optimizado)" : "Público"}`);
-  console.log(`📍 Wallet: ${MERCHANT_WALLET}`);
+connectMongo().then(() => {
+  app.listen(PORT, () => {
+    console.log(`✅ RayPay activo en puerto ${PORT} [${CLUSTER}]`);
+    console.log(`💼 Merchant: ${MERCHANT_WALLET}`);
+    console.log(`🗄️  MongoDB: Conectado`);
+  });
+});
+
+// Manejar cierre graceful
+process.on("SIGINT", async () => {
+  console.log("\n🛑 Cerrando servidor...");
+  await mongoClient.close();
+  process.exit(0);
 });
