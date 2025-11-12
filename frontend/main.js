@@ -1,3 +1,21 @@
+// 🚨 Protección del POS (index.html)
+(function () {
+  const token = localStorage.getItem("raypay_token");
+
+  // Si NO hay token -> redirigimos al login
+  if (!token) {
+    window.location.href = "login.html";
+    return; // evita que el resto del script se ejecute
+  }
+
+  // (Opcional) Si quieres validar el usuario guardado:
+  const user = localStorage.getItem("raypay_user");
+  if (!user) {
+    window.location.href = "login.html";
+    return;
+  }
+})();
+
 // === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
 const amountInput = document.getElementById("amount");
