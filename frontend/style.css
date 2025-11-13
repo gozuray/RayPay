@@ -327,30 +327,3 @@ footer {
     padding: 6px 4px !important;
   }
 }
-.icon-button {
-  position: absolute;
-  top: 16px;
-  padding: 6px 9px;
-  border-radius: 999px;
-  border: none;
-  background: #1e0038;
-  color: #ffffff;
-  cursor: pointer;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-  font-size: 16px;
-}
-
-#toggleAdvanced {
-  right: 18px;
-}
-
-#btnLogout {
-  right: 56px; /* un poco a la izquierda de la tuerca */
-}
-
-.icon-button:hover {
-  transform: scale(1.06);
-  background: #4c1d95;
-  box-shadow: 0 0 18px rgba(192, 132, 252, 0.5);
-}
