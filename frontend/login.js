@@ -1,6 +1,6 @@
 document.body.style.display = "block";
 
-// 👉 URL del backend en Render (cámbiala si tu backend tiene otro nombre)
+// 👉 URL del backend en Render
 const API_BASE = "https://raypay-backend.onrender.com";
 const LOGIN_URL = `${API_BASE}/api/auth/login`;
 
@@ -8,6 +8,15 @@ const btn = document.getElementById("btnLogin");
 const errorMsg = document.getElementById("errorMsg");
 const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
+// 🔚 Botón de cerrar sesión
+const logoutBtn = document.getElementById("btnLogout");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("raypay_token");
+    localStorage.removeItem("raypay_user");
+    window.location.href = "login.html";
+  });
+}
 
 btn.addEventListener("click", handleLogin);
 
@@ -40,21 +49,24 @@ async function handleLogin() {
     });
 
     const data = await res.json().catch(() => ({}));
-
     console.log("Respuesta login:", res.status, data);
 
     if (!res.ok) {
-      showError(data.error || "Error al iniciar sesión");
+      // Mensajes bonitos según el status
+      if (res.status === 401 || res.status === 404) {
+        showError("Email o contraseña incorrectos");
+      } else {
+        showError(data.error || "Error al iniciar sesión");
+      }
       return;
     }
 
-    // Guardar token
+    // ✅ Guardar token y usuario
     localStorage.setItem("raypay_token", data.token);
     localStorage.setItem("raypay_user", JSON.stringify(data.user));
 
-    // Redirigir
+    // 🔁 Redirigir al POS
     window.location.href = "index.html";
-
   } catch (err) {
     console.error("Error login:", err);
     showError("No se puede conectar al servidor");
