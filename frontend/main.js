@@ -1,17 +1,20 @@
+// frontend/main.js
+
 // 🚨 Protección del POS (index.html)
 (function () {
   const token = localStorage.getItem("raypay_token");
-  if (!token) {
-    window.location.href = "login.html";
-    return;
-  }
+  const userStr = localStorage.getItem("raypay_user");
 
-  const user = localStorage.getItem("raypay_user");
-  if (!user) {
+  if (!token || !userStr) {
     window.location.href = "login.html";
     return;
   }
 })();
+
+// === Usuario logueado ===
+const currentUser = JSON.parse(localStorage.getItem("raypay_user") || "{}");
+const merchantWallet = currentUser.wallet || null;
+const merchantName = currentUser.name || "Restaurante";
 
 // === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
@@ -54,7 +57,6 @@ toggleAdvanced.addEventListener("click", (e) => {
     toggleAdvanced.classList.add("rotating");
   }
 });
-
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
 // === Función auxiliar: recorta decimales ===
@@ -94,50 +96,26 @@ if (tokenSelect) {
 function showPaymentStatus(msg) {
   let statusEl = document.getElementById("status");
   if (!statusEl) {
-    statusEl = document.createElement("div");
+    statusEl = document.createElement("p");
     statusEl.id = "status";
-    statusEl.style.marginTop = "20px";
-    statusEl.style.fontSize = "1.2rem";
-    statusEl.style.fontWeight = "600";
+    statusEl.style.marginTop = "16px";
     statusEl.style.textAlign = "center";
-    statusEl.style.transition = "all 0.3s ease";
-    qrContainer.parentNode.insertBefore(statusEl, qrContainer.nextSibling);
+    statusEl.style.color = "#e5e7eb";
+    document.getElementById("statusContainer").appendChild(statusEl);
   }
-
-  if (msg.startsWith("✅")) {
-    statusEl.style.color = "#14f195";
-    statusEl.style.textShadow = "0 0 10px #14f195";
-  } else {
-    statusEl.style.color = "#c084fc";
-    statusEl.style.textShadow = "none";
-  }
-
   statusEl.textContent = msg;
 }
 
-// === Utilidad fetch robusta ===
+// === Fetch helpers ===
 async function safeJsonFetch(url, options) {
   const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    const msg = text || `HTTP ${res.status}`;
-    throw new Error(`Request failed: ${msg}`);
+    throw new Error(data.error || `Error HTTP ${res.status}`);
   }
-  try {
-    return await res.json();
-  } catch {
-    const text = await (async () => {
-      try {
-        return await res.text();
-      } catch {
-        return "";
-      }
-    })();
-    throw new Error(`Respuesta no-JSON: ${text.slice(0, 200)}`);
-  }
+  return data;
 }
 
-// === Helper: intenta una URL ===
 async function tryJson(url, options) {
   try {
     const data = await safeJsonFetch(url, options);
@@ -157,7 +135,7 @@ async function checkPaymentStatus(reference) {
       showPaymentStatus(
         `✅ Pago confirmado ${
           data.savedToDatabase ? "(guardado en BD)" : "(desde cache)"
-        } (${String(data.signature).slice(0, 8)}...)`
+        } (${String(data.signature).slice(0, 8)}.)`
       );
       qrContainer.classList.add("confirmed");
       ding.play();
@@ -165,7 +143,7 @@ async function checkPaymentStatus(reference) {
       checkInterval = null;
       currentReference = null;
     } else if (data.status === "pendiente") {
-      console.log("⏳ Aún pendiente...");
+      console.log("⏳ Aún pendiente.");
     }
   } catch (err) {
     console.warn("Error consultando estado:", err);
@@ -203,14 +181,22 @@ btn.addEventListener("click", async () => {
 
   try {
     const fixedAmount = amount.toFixed(decimals);
+
+    const body = {
+      amount: fixedAmount,
+      token,
+      restaurant: merchantName,
+    };
+
+    // 👇 agregamos la wallet del comercio (si existe)
+    if (merchantWallet) {
+      body.merchantWallet = merchantWallet;
+    }
+
     const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount: fixedAmount,
-        token,
-        restaurant: "Restaurante Lisboa",
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!data.solana_url) {
@@ -251,14 +237,12 @@ btn.addEventListener("click", async () => {
     const walletAddress = match ? match[1] : "desconocida";
     const shortAddr =
       walletAddress.length > 10
-        ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
+        ? `${walletAddress.slice(0, 4)}.${walletAddress.slice(-4)}`
         : walletAddress;
 
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
     walletAddressEl.dataset.fullAddress = walletAddress;
     document.getElementById("walletInfo").style.display = "block";
-
-    
 
     console.log("✅ QR generado:", data.solana_url);
     showPaymentStatus("⏳ Esperando pago en la red Solana...");
@@ -276,16 +260,14 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === HISTORIAL & FILTROS ===
+// === HISTORIAL DESDE MONGODB ===
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
 function renderHistoryTable(data) {
   if (!data || !data.data || data.data.length === 0) {
     historyContainer.innerHTML = `
       <p style='color: #fbbf24; padding: 20px;'>
-        ⚠️ No hay transacciones ${
-          currentFilter !== "all" ? "de " + currentFilter : ""
-        }
+        ⚠️ No hay transacciones ${currentFilter !== "all" ? "de " + currentFilter : ""}
       </p>
     `;
     return;
@@ -306,12 +288,8 @@ function renderHistoryTable(data) {
       <button onclick="filterTransactions('all')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${
-          currentFilter === "all" ? "#c084fc" : "#3b0764"
-        };
-        background: ${
-          currentFilter === "all" ? "#6d28d9" : "transparent"
-        };
+        border: 2px solid ${currentFilter === "all" ? "#c084fc" : "#3b0764"};
+        background: ${currentFilter === "all" ? "#6d28d9" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
@@ -322,142 +300,79 @@ function renderHistoryTable(data) {
       <button onclick="filterTransactions('USDC')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${
-          currentFilter === "USDC" ? "#c084fc" : "#3b0764"
-        };
-        background: ${
-          currentFilter === "USDC" ? "#6d28d9" : "transparent"
-        };
+        border: 2px solid ${currentFilter === "USDC" ? "#c084fc" : "#3b0764"};
+        background: ${currentFilter === "USDC" ? "#6d28d9" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.3s;
       ">
-        💵 USDC
+        💵 USDC (${totals.USDC.toFixed(2)})
       </button>
       <button onclick="filterTransactions('SOL')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${
-          currentFilter === "SOL" ? "#14f195" : "#3b0764"
-        };
-        background: ${
-          currentFilter === "SOL" ? "#047857" : "transparent"
-        };
+        border: 2px solid ${currentFilter === "SOL" ? "#c084fc" : "#3b0764"};
+        background: ${currentFilter === "SOL" ? "#6d28d9" : "transparent"};
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
         transition: all 0.3s;
       ">
-        ⚡ SOL
+        ⚡ SOL (${totals.SOL.toFixed(5)})
       </button>
     </div>
 
-    <!-- Resumen de totales -->
-    <div style="
-      background: #3b0764;
-      padding: 12px;
-      border-radius: 8px;
-      margin-bottom: 15px;
-      display: flex;
-      justify-content: space-around;
-      flex-wrap: wrap;
-      gap: 10px;
-    ">
-      <div style="text-align: center;">
-        <div style="color: #9ca3af; font-size: 0.8rem;">Total USDC</div>
-        <div style="color: #c084fc; font-size: 1.2rem; font-weight: 600;">
-          ${totals.USDC.toFixed(2)}
-        </div>
-      </div>
-      <div style="text-align: center;">
-        <div style="color: #9ca3af; font-size: 0.8rem;">Total SOL</div>
-        <div style="color: #14f195; font-size: 1.2rem; font-weight: 600;">
-          ${totals.SOL.toFixed(5)}
-        </div>
-      </div>
-      <div style="text-align: center;">
-        <div style="color: #9ca3af; font-size: 0.8rem;">Transacciones</div>
-        <div style="color: #fbbf24; font-size: 1.2rem; font-weight: 600;">
-          ${data.total}
-        </div>
-      </div>
-    </div>
-
-    <!-- Tabla -->
-    <div style="
-      width: 100%;
-      overflow-x: auto;
-      border-radius: 8px;
-      background: #1e0038;
-      padding: 10px;
-      box-sizing: border-box;
-    ">
+    <div style="overflow-x:auto;">
       <table style="
         width: 100%;
-        min-width: 700px;
         border-collapse: collapse;
-        font-size: 0.8rem;
+        font-size: 0.85rem;
+        color: #e5e7eb;
+        background: rgba(15, 6, 38, 0.9);
+        border-radius: 12px;
+        overflow: hidden;
       ">
         <thead>
-          <tr style="background: #3b0764; color: #fff;">
-            <th style="padding: 10px 8px; text-align: left;">Signature</th>
-            <th style="padding: 10px 8px; text-align: right;">Monto</th>
-            <th style="padding: 10px 8px; text-align: center;">Token</th>
-            <th style="padding: 10px 8px; text-align: left;">Pagador</th>
-            <th style="padding: 10px 8px; text-align: right;">Fee</th>
-            <th style="padding: 10px 8px; text-align: center;">Fecha</th>
-            <th style="padding: 10px 8px; text-align: center;">Hora</th>
+          <tr style="background: rgba(88, 28, 135, 0.95);">
+            <th style="padding: 10px;">Fecha</th>
+            <th style="padding: 10px;">Token</th>
+            <th style="padding: 10px;">Monto</th>
+            <th style="padding: 10px;">Pagador</th>
+            <th style="padding: 10px;">Fee</th>
+            <th style="padding: 10px;">Estado</th>
           </tr>
         </thead>
         <tbody>
   `;
 
-  transactions.forEach((tx, index) => {
-    const bgColor = index % 2 === 0 ? "#1e0038" : "#2a0048";
-    const shortSig = tx.signature
-      ? `${tx.signature.slice(0, 8)}...${tx.signature.slice(-4)}`
-      : "N/A";
-    const shortPayer = tx.payer
-      ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
-      : "N/A";
-
+  transactions.forEach((tx) => {
+    const shortPayer =
+      tx.payer && tx.payer.length > 10
+        ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
+        : tx.payer || "N/A";
     html += `
-      <tr style="background: ${bgColor}; color: #c084fc; transition: background 0.2s;"
-          onmouseover="this.style.background='#3b0764'"
-          onmouseout="this.style.background='${bgColor}'">
-        <td style="padding: 8px; font-family: monospace; font-size: 0.75rem;">
-          <a href="https://solscan.io/tx/${tx.signature}"
-             target="_blank"
-             style="color: #60a5fa; text-decoration: none;"
-             title="${tx.signature}">
-            ${shortSig}
-          </a>
+      <tr style="border-top: 1px solid rgba(55, 65, 81, 0.6);">
+        <td style="padding: 8px 10px;">
+          <div>${tx.date}</div>
+          <div style="font-size: 0.8rem; color:#9ca3af;">${tx.time}</div>
         </td>
-        <td style="padding: 8px; text-align: right; font-weight: 600;">
-          ${tx.amount}
-        </td>
-        <td style="padding: 8px; text-align: center;">
+        <td style="padding: 8px 10px;">${tx.token}</td>
+        <td style="padding: 8px 10px;">${tx.amount}</td>
+        <td style="padding: 8px 10px;">${shortPayer}</td>
+        <td style="padding: 8px 10px;">${tx.fee}</td>
+        <td style="padding: 8px 10px;">
           <span style="
-            background: ${tx.token === "SOL" ? "#14f195" : "#c084fc"};
-            color: #0a0018;
-            padding: 3px 10px;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.75rem;
-          ">${tx.token}</span>
-        </td>
-        <td style="padding: 8px; font-family: monospace; font-size: 0.75rem;" title="${tx.payer}">
-          ${shortPayer}
-        </td>
-        <td style="padding: 8px; text-align: right; color: #fbbf24; font-size: 0.75rem;">
-          ${tx.fee.toFixed(6)} SOL
-        </td>
-        <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
-          ${tx.date}
-        </td>
-        <td style="padding: 8px; text-align: center; font-size: 0.8rem;">
-          ${tx.time}
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: ${
+              tx.status === "success" ? "#16a34a33" : "#facc1533"
+            };
+            color: ${tx.status === "success" ? "#bbf7d0" : "#fed7aa"};
+            font-size: 0.8rem;
+          ">
+            ${tx.status === "success" ? "Completo" : tx.status}
+          </span>
         </td>
       </tr>
     `;
@@ -484,10 +399,15 @@ window.filterTransactions = async (filter) => {
 // 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
   historyContainer.innerHTML =
-    "<p style='color:#aaa; padding: 20px;'>🔄 Cargando desde MongoDB...</p>";
+    "<p style='color:#aaa; padding: 20px;'>🔄 Cargando desde MongoDB.</p>";
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
-  const result = await tryJson(`${API_URL}/transactions?limit=50${tokenParam}`);
+  const walletParam = merchantWallet
+    ? `&wallet=${encodeURIComponent(merchantWallet)}`
+    : "";
+  const url = `${API_URL}/transactions?limit=50${tokenParam}${walletParam}`;
+
+  const result = await tryJson(url);
 
   if (result.ok && result.data) {
     renderHistoryTable(result.data);
@@ -517,7 +437,11 @@ advHistory.addEventListener("click", () => {
 
 // Descargar CSV
 advDownload.addEventListener("click", () => {
-  window.open(`${API_URL}/transactions/download`, "_blank");
+  let url = `${API_URL}/transactions/download`;
+  if (merchantWallet) {
+    url += `?wallet=${encodeURIComponent(merchantWallet)}`;
+  }
+  window.open(url, "_blank");
 });
 
 // Copiar dirección desde la tuerca
@@ -534,7 +458,6 @@ advCopy.addEventListener("click", () => {
     }, 1500);
   });
 });
-
 
 // Cerrar sesión
 advLogout.addEventListener("click", () => {
