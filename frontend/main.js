@@ -1,14 +1,11 @@
 // 🚨 Protección del POS (index.html)
 (function () {
   const token = localStorage.getItem("raypay_token");
-
-  // Si NO hay token -> redirigimos al login
   if (!token) {
     window.location.href = "login.html";
-    return; // evita que el resto del script se ejecute
+    return;
   }
 
-  // (Opcional) Si quieres validar el usuario guardado:
   const user = localStorage.getItem("raypay_user");
   if (!user) {
     window.location.href = "login.html";
@@ -25,6 +22,13 @@ const btnCopy = document.getElementById("btnCopy");
 const tokenSelect = document.getElementById("token");
 const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
+const historyContainer = document.getElementById("historyContainer");
+
+// Botones dentro de la tuerca
+const advCopy = document.getElementById("advCopy");
+const advHistory = document.getElementById("advHistory");
+const advDownload = document.getElementById("advDownload");
+const advLogout = document.getElementById("advLogout");
 
 let checkInterval = null;
 let currentReference = null;
@@ -152,7 +156,9 @@ async function checkPaymentStatus(reference) {
     const data = await safeJsonFetch(`${API_URL}/confirm/${reference}`);
     if (data.status === "pagado") {
       showPaymentStatus(
-        `✅ Pago confirmado ${data.savedToDatabase ? '(guardado en BD)' : '(desde cache)'} (${String(data.signature).slice(0, 8)}...)`
+        `✅ Pago confirmado ${
+          data.savedToDatabase ? "(guardado en BD)" : "(desde cache)"
+        } (${String(data.signature).slice(0, 8)}...)`
       );
       qrContainer.classList.add("confirmed");
       ding.play();
@@ -178,6 +184,7 @@ btn.addEventListener("click", async () => {
   if (statusEl) statusEl.remove();
   qrContainer.innerHTML = "";
   walletAddressEl.textContent = "";
+  walletAddressEl.dataset.fullAddress = "";
   document.getElementById("walletInfo").style.display = "none";
 
   const token = tokenSelect ? tokenSelect.value : "USDC";
@@ -249,19 +256,24 @@ btn.addEventListener("click", async () => {
         : walletAddress;
 
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
+    walletAddressEl.dataset.fullAddress = walletAddress;
     document.getElementById("walletInfo").style.display = "block";
 
+    // Botón debajo del QR
     btnCopy.onclick = () => {
-      navigator.clipboard.writeText(walletAddress).then(() => {
-        btnCopy.textContent = "Copiado ✅";
-        btnCopy.style.backgroundColor = "#16a34a";
-        btnCopy.style.transform = "scale(1.03)";
-        setTimeout(() => {
-          btnCopy.textContent = "Copiar dirección";
-          btnCopy.style.backgroundColor = "#6d28d9";
-          btnCopy.style.transform = "scale(1)";
-        }, 1500);
-      });
+      if (!walletAddressEl.dataset.fullAddress) return;
+      navigator.clipboard.writeText(walletAddressEl.dataset.fullAddress).then(
+        () => {
+          btnCopy.textContent = "Copiado ✅";
+          btnCopy.style.backgroundColor = "#16a34a";
+          btnCopy.style.transform = "scale(1.03)";
+          setTimeout(() => {
+            btnCopy.textContent = "Copiar dirección";
+            btnCopy.style.backgroundColor = "#6d28d9";
+            btnCopy.style.transform = "scale(1)";
+          }, 1500);
+        }
+      );
     };
 
     console.log("✅ QR generado:", data.solana_url);
@@ -270,7 +282,7 @@ btn.addEventListener("click", async () => {
     currentReference = data.reference;
     checkInterval = setInterval(() => {
       checkPaymentStatus(currentReference);
-    }, 8000); // Cada 8 segundos (más rápido ahora)
+    }, 8000);
   } catch (err) {
     console.error("Error generando QR:", err);
     alert(`❌ No se pudo conectar al backend.\n\n${err.message}`);
@@ -280,50 +292,16 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === 📜 HISTORIAL DESDE MONGODB ===
-// === Botones dentro de la tuerca ===
-const advHistory = document.getElementById("advHistory");
-const advDownload = document.getElementById("advDownload");
-const advLogout = document.getElementById("advLogout");
-
-// Historial
-advHistory.addEventListener("click", () => {
-  advanced.classList.remove("visible");
-  loadTransactions("all");
-  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-});
-
-// Descargar CSV
-advDownload.addEventListener("click", () => {
-  window.open(`${API_URL}/transactions/download`, "_blank");
-});
-
-// Cerrar sesión
-advLogout.addEventListener("click", () => {
-  localStorage.removeItem("raypay_token");
-  localStorage.removeItem("raypay_user");
-  window.location.href = "login.html";
-});
-
-// === 🔥 Cerrar sesión ===
-const btnLogout = document.getElementById("btnLogout");
-btnLogout.addEventListener("click", () => {
-  localStorage.removeItem("raypay_token");
-  localStorage.removeItem("raypay_user");
-
-  // Redirigir al login
-  window.location.href = "login.html";
-});
-
-
+// === HISTORIAL & FILTROS ===
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
-// 🎨 Renderizar tabla mejorada
 function renderHistoryTable(data) {
   if (!data || !data.data || data.data.length === 0) {
     historyContainer.innerHTML = `
       <p style='color: #fbbf24; padding: 20px;'>
-        ⚠️ No hay transacciones ${currentFilter !== "all" ? "de " + currentFilter : ""}
+        ⚠️ No hay transacciones ${
+          currentFilter !== "all" ? "de " + currentFilter : ""
+        }
       </p>
     `;
     return;
@@ -344,8 +322,12 @@ function renderHistoryTable(data) {
       <button onclick="filterTransactions('all')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === "all" ? "#c084fc" : "#3b0764"};
-        background: ${currentFilter === "all" ? "#6d28d9" : "transparent"};
+        border: 2px solid ${
+          currentFilter === "all" ? "#c084fc" : "#3b0764"
+        };
+        background: ${
+          currentFilter === "all" ? "#6d28d9" : "transparent"
+        };
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
@@ -356,8 +338,12 @@ function renderHistoryTable(data) {
       <button onclick="filterTransactions('USDC')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === "USDC" ? "#c084fc" : "#3b0764"};
-        background: ${currentFilter === "USDC" ? "#6d28d9" : "transparent"};
+        border: 2px solid ${
+          currentFilter === "USDC" ? "#c084fc" : "#3b0764"
+        };
+        background: ${
+          currentFilter === "USDC" ? "#6d28d9" : "transparent"
+        };
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
@@ -368,8 +354,12 @@ function renderHistoryTable(data) {
       <button onclick="filterTransactions('SOL')" style="
         padding: 8px 16px;
         border-radius: 8px;
-        border: 2px solid ${currentFilter === "SOL" ? "#14f195" : "#3b0764"};
-        background: ${currentFilter === "SOL" ? "#047857" : "transparent"};
+        border: 2px solid ${
+          currentFilter === "SOL" ? "#14f195" : "#3b0764"
+        };
+        background: ${
+          currentFilter === "SOL" ? "#047857" : "transparent"
+        };
         color: #fff;
         cursor: pointer;
         font-size: 0.9rem;
@@ -412,15 +402,15 @@ function renderHistoryTable(data) {
 
     <!-- Tabla -->
     <div style="
-      width: 100%; 
-      overflow-x: auto; 
+      width: 100%;
+      overflow-x: auto;
       border-radius: 8px;
       background: #1e0038;
       padding: 10px;
       box-sizing: border-box;
     ">
       <table style="
-        width: 100%; 
+        width: 100%;
         min-width: 700px;
         border-collapse: collapse;
         font-size: 0.8rem;
@@ -450,11 +440,11 @@ function renderHistoryTable(data) {
 
     html += `
       <tr style="background: ${bgColor}; color: #c084fc; transition: background 0.2s;"
-          onmouseover="this.style.background='#3b0764'" 
+          onmouseover="this.style.background='#3b0764'"
           onmouseout="this.style.background='${bgColor}'">
         <td style="padding: 8px; font-family: monospace; font-size: 0.75rem;">
-          <a href="https://solscan.io/tx/${tx.signature}" 
-             target="_blank" 
+          <a href="https://solscan.io/tx/${tx.signature}"
+             target="_blank"
              style="color: #60a5fa; text-decoration: none;"
              title="${tx.signature}">
             ${shortSig}
@@ -531,11 +521,41 @@ async function loadTransactions(filter = "all") {
   }
 }
 
-// Event listeners
-btnHistory.addEventListener("click", () => loadTransactions("all"));
+// === Acciones dentro de la tuerca ===
 
-btnDownload.addEventListener("click", () => {
+// Ver historial
+advHistory.addEventListener("click", () => {
+  advanced.classList.remove("visible");
+  toggleAdvanced.classList.remove("rotating");
+  loadTransactions("all");
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+});
+
+// Descargar CSV
+advDownload.addEventListener("click", () => {
   window.open(`${API_URL}/transactions/download`, "_blank");
+});
+
+// Copiar dirección desde la tuerca
+advCopy.addEventListener("click", () => {
+  const fullAddr = walletAddressEl.dataset.fullAddress;
+  if (!fullAddr) {
+    alert("Primero genera un QR para tener una dirección.");
+    return;
+  }
+  navigator.clipboard.writeText(fullAddr).then(() => {
+    advCopy.textContent = "📋 Dirección copiada ✅";
+    setTimeout(() => {
+      advCopy.textContent = "📋 Copiar dirección";
+    }, 1500);
+  });
+});
+
+// Cerrar sesión
+advLogout.addEventListener("click", () => {
+  localStorage.removeItem("raypay_token");
+  localStorage.removeItem("raypay_user");
+  window.location.href = "login.html";
 });
 
 historyContainer.style.marginBottom = "40px";

@@ -316,27 +316,49 @@ footer {
   }
 }
 /* 🔧 Forzar buen comportamiento del panel de ajustes */
+/* Panel de ajustes con animación suave */
 #advanced {
-  margin-top: 12px;
-  padding: 10px 12px 14px;
   background: rgba(15, 6, 40, 0.9);
   border-radius: 12px;
   border: 1px solid rgba(192, 132, 252, 0.3);
-  display: none;              /* escondido por defecto */
+  display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: visible;          /* que no recorte el contenido */
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+  margin-top: 0;
+  padding: 0 12px;
+  transition:
+    max-height 0.35s ease,
+    opacity 0.35s ease,
+    transform 0.35s ease,
+    margin-top 0.35s ease,
+    padding-top 0.35s ease,
+    padding-bottom 0.35s ease;
 }
 
-/* Cuando la tuerca lo abre */
 #advanced.visible {
-  display: flex;              /* se muestra en columna */
+  max-height: 420px; /* suficiente para todo el contenido */
+  opacity: 1;
+  transform: translateY(0);
+  margin-top: 12px;
+  padding-top: 10px;
+  padding-bottom: 14px;
 }
 
-/* Opcional: estilo extra para el botón de logout si quieres */
-#btnLogout {
-  font-size: 0.9rem;
+/* Contenedor de las acciones (parte de abajo) */
+.adv-actions {
+  margin-top: 10px;
 }
+
+.adv-actions hr {
+  border: none;
+  border-top: 1px solid #3b0764;
+  margin: 4px 0 10px;
+}
+
 /* Opciones dentro de la tuerca */
 .advOption {
   width: 100%;
@@ -356,7 +378,7 @@ footer {
   background: rgba(109, 40, 217, 0.3);
 }
 
-/* Botón rojo */
+/* Botón rojo de salida */
 .advOption.danger {
   background: #8b0000 !important;
   color: #fff;

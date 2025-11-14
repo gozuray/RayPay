@@ -21,50 +21,47 @@
     <div class="container">
 
       <div class="card">
-        <button id="toggleAdvanced">⚙️</button>
-        <h2>💳 Solana Pay Terminal</h2>
+  <button id="toggleAdvanced">⚙️</button>
+  <h2>💳 Solana Pay Terminal</h2>
 
-        <input
-          id="amount"
-          type="text"
-          inputmode="decimal"
-          placeholder="Monto en USDC"
-        />
+  <input
+    id="amount"
+    type="text"
+    inputmode="decimal"
+    placeholder="Monto en USDC"
+  />
 
-        <!-- Panel de configuración -->
-        <div id="advanced">
+  <!-- Panel de configuración -->
+  <div id="advanced">
+    <label for="token">Token:</label>
+    <select id="token">
+      <option value="USDC" selected>USDC</option>
+      <option value="SOL">SOL</option>
+    </select>
 
-          <!-- Selector de token -->
-          <label for="token">Token:</label>
-          <select id="token">
-            <option value="USDC" selected>USDC</option>
-            <option value="SOL">SOL</option>
-          </select>
-
-          <hr style="border: none; border-top: 1px solid #3b0764; margin: 12px 0;">
-
-          <!-- Menú minimalista -->
-          <button class="advOption" id="advHistory">📜 Ver historial</button>
-          <button class="advOption" id="advDownload">⬇️ Descargar historial CSV</button>
-
-          <!-- Botón rojo -->
-          <button class="advOption danger" id="advLogout">🚪 Cerrar sesión</button>
-        </div>
-
-        <button id="btnGenerate">Generar QR</button>
-
-        <div id="qrcode"></div>
-
-        <div id="walletInfo">
-          <div id="walletAddress"></div>
-          <button id="btnCopy">Copiar dirección</button>
-        </div>
-
-        <!-- Contenedor de historial -->
-        <div id="historyContainer" style="margin-top: 20px; text-align: center;"></div>
-
-      </div>
+    <!-- Acciones abajo del panel -->
+    <div class="adv-actions">
+      <hr />
+      <button class="advOption" id="advCopy">📋 Copiar dirección</button>
+      <button class="advOption" id="advHistory">📜 Ver historial</button>
+      <button class="advOption" id="advDownload">⬇️ Descargar historial CSV</button>
+      <button class="advOption danger" id="advLogout">🚪 Cerrar sesión</button>
     </div>
+  </div>
+
+  <button id="btnGenerate">Generar QR</button>
+
+  <div id="qrcode"></div>
+
+  <div id="walletInfo">
+    <div id="walletAddress"></div>
+    <button id="btnCopy">Copiar dirección</button>
+  </div>
+
+  <!-- Contenedor de historial -->
+  <div id="historyContainer" style="margin-top: 20px; text-align: center;"></div>
+</div>
+
 
     <footer>Hecho con 💜 por Ray | Solana Network</footer>
 
