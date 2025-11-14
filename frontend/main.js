@@ -18,7 +18,6 @@ const btn = document.getElementById("btnGenerate");
 const amountInput = document.getElementById("amount");
 const qrContainer = document.getElementById("qrcode");
 const walletAddressEl = document.getElementById("walletAddress");
-const btnCopy = document.getElementById("btnCopy");
 const tokenSelect = document.getElementById("token");
 const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
@@ -259,22 +258,7 @@ btn.addEventListener("click", async () => {
     walletAddressEl.dataset.fullAddress = walletAddress;
     document.getElementById("walletInfo").style.display = "block";
 
-    // Botón debajo del QR
-    btnCopy.onclick = () => {
-      if (!walletAddressEl.dataset.fullAddress) return;
-      navigator.clipboard.writeText(walletAddressEl.dataset.fullAddress).then(
-        () => {
-          btnCopy.textContent = "Copiado ✅";
-          btnCopy.style.backgroundColor = "#16a34a";
-          btnCopy.style.transform = "scale(1.03)";
-          setTimeout(() => {
-            btnCopy.textContent = "Copiar dirección";
-            btnCopy.style.backgroundColor = "#6d28d9";
-            btnCopy.style.transform = "scale(1)";
-          }, 1500);
-        }
-      );
-    };
+    
 
     console.log("✅ QR generado:", data.solana_url);
     showPaymentStatus("⏳ Esperando pago en la red Solana...");
@@ -550,6 +534,7 @@ advCopy.addEventListener("click", () => {
     }, 1500);
   });
 });
+
 
 // Cerrar sesión
 advLogout.addEventListener("click", () => {

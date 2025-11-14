@@ -388,3 +388,7 @@ footer {
 .advOption.danger:hover {
   background: #a30000 !important;
 }
+/* Panel colocado debajo del QR */
+#advanced {
+  margin-top: 20px !important;
+}

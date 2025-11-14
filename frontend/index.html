@@ -31,6 +31,16 @@
     placeholder="Monto en USDC"
   />
 
+
+
+  <button id="btnGenerate">Generar QR</button>
+
+  <div id="qrcode"></div>
+
+  <div id="walletInfo">
+  <div id="walletAddress"></div>
+</div>
+
   <!-- Panel de configuración -->
   <div id="advanced">
     <label for="token">Token:</label>
@@ -47,15 +57,6 @@
       <button class="advOption" id="advDownload">⬇️ Descargar historial CSV</button>
       <button class="advOption danger" id="advLogout">🚪 Cerrar sesión</button>
     </div>
-  </div>
-
-  <button id="btnGenerate">Generar QR</button>
-
-  <div id="qrcode"></div>
-
-  <div id="walletInfo">
-    <div id="walletAddress"></div>
-    <button id="btnCopy">Copiar dirección</button>
   </div>
 
   <!-- Contenedor de historial -->
