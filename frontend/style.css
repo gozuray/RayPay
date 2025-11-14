@@ -92,19 +92,7 @@ input[type="text"]:focus {
 }
 
 /* Configuración avanzada */
-#advanced {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: all 0.3s ease;
-  margin-bottom: 0;
-}
 
-#advanced.visible {
-  max-height: 100px;
-  opacity: 1;
-  margin-bottom: 20px;
-}
 
 #advanced label {
   display: block;
