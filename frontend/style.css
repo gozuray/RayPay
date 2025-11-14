@@ -327,3 +327,25 @@ footer {
     padding: 6px 4px !important;
   }
 }
+/* 🔧 Forzar buen comportamiento del panel de ajustes */
+#advanced {
+  margin-top: 12px;
+  padding: 10px 12px 14px;
+  background: rgba(15, 6, 40, 0.9);
+  border-radius: 12px;
+  border: 1px solid rgba(192, 132, 252, 0.3);
+  display: none;              /* escondido por defecto */
+  flex-direction: column;
+  gap: 8px;
+  overflow: visible;          /* que no recorte el contenido */
+}
+
+/* Cuando la tuerca lo abre */
+#advanced.visible {
+  display: flex;              /* se muestra en columna */
+}
+
+/* Opcional: estilo extra para el botón de logout si quieres */
+#btnLogout {
+  font-size: 0.9rem;
+}
