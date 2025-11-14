@@ -33,11 +33,22 @@
 
         <!-- Panel de configuración -->
         <div id="advanced">
+
+          <!-- Selector de token -->
           <label for="token">Token:</label>
           <select id="token">
             <option value="USDC" selected>USDC</option>
             <option value="SOL">SOL</option>
           </select>
+
+          <hr style="border: none; border-top: 1px solid #3b0764; margin: 12px 0;">
+
+          <!-- Menú minimalista -->
+          <button class="advOption" id="advHistory">📜 Ver historial</button>
+          <button class="advOption" id="advDownload">⬇️ Descargar historial CSV</button>
+
+          <!-- Botón rojo -->
+          <button class="advOption danger" id="advLogout">🚪 Cerrar sesión</button>
         </div>
 
         <button id="btnGenerate">Generar QR</button>
@@ -49,31 +60,8 @@
           <button id="btnCopy">Copiar dirección</button>
         </div>
 
-        <!-- Botones de historial -->
-        <div class="history-buttons">
-          <button id="btnHistory">📜 Ver historial</button>
-          <button id="btnDownload">⬇️ Descargar historial CSV</button>
-        </div>
-
         <!-- Contenedor de historial -->
         <div id="historyContainer" style="margin-top: 20px; text-align: center;"></div>
-
-        <!-- 🔥 Botón de cerrar sesión al final -->
-        <button id="btnLogout" style="
-          margin-top: 25px;
-          width: 100%;
-          padding: 14px;
-          background: #8b0000;
-          color: #fff;
-          border: none;
-          border-radius: 10px;
-          font-weight: 600;
-          cursor: pointer;
-          font-size: 1rem;
-          box-shadow: 0 4px 15px rgba(139, 0, 0, 0.4);
-        ">
-          🚪 Cerrar sesión
-        </button>
 
       </div>
     </div>

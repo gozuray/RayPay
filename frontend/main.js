@@ -281,9 +281,30 @@ btn.addEventListener("click", async () => {
 });
 
 // === 📜 HISTORIAL DESDE MONGODB ===
-const btnHistory = document.getElementById("btnHistory");
-const btnDownload = document.getElementById("btnDownload");
-const historyContainer = document.getElementById("historyContainer");
+// === Botones dentro de la tuerca ===
+const advHistory = document.getElementById("advHistory");
+const advDownload = document.getElementById("advDownload");
+const advLogout = document.getElementById("advLogout");
+
+// Historial
+advHistory.addEventListener("click", () => {
+  advanced.classList.remove("visible");
+  loadTransactions("all");
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+});
+
+// Descargar CSV
+advDownload.addEventListener("click", () => {
+  window.open(`${API_URL}/transactions/download`, "_blank");
+});
+
+// Cerrar sesión
+advLogout.addEventListener("click", () => {
+  localStorage.removeItem("raypay_token");
+  localStorage.removeItem("raypay_user");
+  window.location.href = "login.html";
+});
+
 // === 🔥 Cerrar sesión ===
 const btnLogout = document.getElementById("btnLogout");
 btnLogout.addEventListener("click", () => {

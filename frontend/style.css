@@ -337,3 +337,32 @@ footer {
 #btnLogout {
   font-size: 0.9rem;
 }
+/* Opciones dentro de la tuerca */
+.advOption {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(30, 0, 56, 0.6);
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  color: #d9b3ff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: 0.2s;
+  margin-bottom: 8px;
+}
+
+.advOption:hover {
+  background: rgba(109, 40, 217, 0.3);
+}
+
+/* Botón rojo */
+.advOption.danger {
+  background: #8b0000 !important;
+  color: #fff;
+  border: none;
+}
+
+.advOption.danger:hover {
+  background: #a30000 !important;
+}
