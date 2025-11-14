@@ -284,6 +284,16 @@ btn.addEventListener("click", async () => {
 const btnHistory = document.getElementById("btnHistory");
 const btnDownload = document.getElementById("btnDownload");
 const historyContainer = document.getElementById("historyContainer");
+// === 🔥 Cerrar sesión ===
+const btnLogout = document.getElementById("btnLogout");
+btnLogout.addEventListener("click", () => {
+  localStorage.removeItem("raypay_token");
+  localStorage.removeItem("raypay_user");
+
+  // Redirigir al login
+  window.location.href = "login.html";
+});
+
 
 let currentFilter = "all"; // "all", "SOL", "USDC"
 

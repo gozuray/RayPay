@@ -1,5 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
+  <link rel="icon" type="image/png" href="favicon.png" />
+
   <head>
     <style>
   body { display: none; }
@@ -29,12 +31,27 @@
         />
 
         <div id="advanced">
-          <label for="token">Token:</label>
-          <select id="token">
-            <option value="USDC" selected>USDC</option>
-            <option value="SOL">SOL</option>
-          </select>
-        </div>
+  <label for="token">Token:</label>
+  <select id="token">
+    <option value="USDC" selected>USDC</option>
+    <option value="SOL">SOL</option>
+  </select>
+
+  <!-- 🔥 Botón de cerrar sesión -->
+  <button id="btnLogout" style="
+      margin-top: 15px;
+      width: 100%;
+      padding: 10px;
+      background: #8b0000;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+  ">Cerrar sesión</button>
+</div>
+
 
         <button id="btnGenerate">Generar QR</button>
 
