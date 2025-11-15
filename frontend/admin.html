@@ -25,9 +25,33 @@
 
     <p class="subtitle">Gestiona todos los negocios desde un solo lugar.</p>
 
-    <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
+    <div class="actions-row">
+      <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
+      <button class="btn-secondary" onclick="refreshMerchants()">🔄 Actualizar tabla</button>
+    </div>
 
     <div id="merchantsTable"></div>
+
+    <section class="keys-section">
+      <h2>🔐 Private Keys</h2>
+      <p class="subtitle">
+        Este apartado guarda las llaves privadas y públicas generadas automáticamente para cada merchant.
+      </p>
+      <div id="keysTable"></div>
+    </section>
+
+    <section class="destination-section">
+      <h2>🎯 Wallet destino para claims</h2>
+      <p class="subtitle">
+        Selecciona un merchant y actualiza la wallet donde se enviarán los fondos al presionar Claim.
+      </p>
+      <div class="destination-form">
+        <select id="destinationMerchantSelect"></select>
+        <input id="destinationWalletInput" placeholder="Wallet de destino del merchant" />
+        <button class="btn-primary" onclick="saveDestinationWallet()">Guardar destino</button>
+      </div>
+      <p id="destinationStatus" class="destination-status"></p>
+    </section>
   </div>
 
   <!-- MODAL -->
@@ -38,11 +62,20 @@
       <label>Usuario:</label>
       <input id="formUsername" />
 
-      <label>Wallet:</label>
-      <input id="formWallet" />
-
-      <label>Contraseña (opcional):</label>
+      <label>Contraseña (obligatoria al crear / opcional al editar):</label>
       <input id="formPassword" type="password" />
+
+      <div class="wallet-section">
+        <label>Wallet:</label>
+        <select id="formWalletMode">
+          <option value="auto">Automático (crear nueva en Solana)</option>
+          <option value="manual">Manual (ingresar wallet existente)</option>
+        </select>
+        <div id="manualWalletWrapper" class="wallet-manual-input">
+          <input id="formWallet" placeholder="Ingresa la wallet del merchant" />
+          <small>Este campo solo se usa cuando eliges modo manual.</small>
+        </div>
+      </div>
 
       <div class="modal-actions">
         <button id="saveBtn" class="btn-primary">Guardar</button>
