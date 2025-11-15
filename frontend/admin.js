@@ -184,20 +184,36 @@ async function saveEdit() {
 async function deleteMerchant(id) {
   if (!confirm("¿Eliminar merchant?")) return;
 
-  const res = await fetch(`${API}/merchant/${id}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  try {
+    const res = await fetch(`${API}/merchant/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.error || "Error al eliminar merchant");
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (e) {
+      console.warn("Respuesta no JSON en DELETE:", e);
+    }
+
+    console.log("DELETE /admin/merchant:", res.status, data);
+
+    if (!res.ok) {
+      alert(data.error || "Error al eliminar merchant");
+      return;
+    }
+
+    // Recargar lista
+    loadMerchants();
+  } catch (e) {
+    console.error("deleteMerchant error:", e);
+    alert("Error de conexión al borrar merchant");
   }
-
-  loadMerchants();
 }
+
 
 // =====================
 //  Logout admin

@@ -24,14 +24,12 @@ function checkAdmin(req, res, next) {
     return res.status(403).json({ error: "No autorizado" });
   }
 
-  // opcional: guardar info del admin
   req.admin = data;
   next();
 }
 
 /**
  * GET /admin/merchants
- * Lista todos los merchants
  */
 router.get("/merchants", checkAdmin, async (req, res) => {
   try {
@@ -39,7 +37,7 @@ router.get("/merchants", checkAdmin, async (req, res) => {
     const merchants = await db
       .collection("merchants")
       .find({})
-      .project({ password: 0 }) // no enviar hashes al front
+      .project({ password: 0 })
       .toArray();
 
     res.json({ merchants });
@@ -100,10 +98,14 @@ router.put("/merchant/:id", checkAdmin, async (req, res) => {
     if (password) update.password = await bcrypt.hash(password, 10);
 
     const db = getDB();
-    await db.collection("merchants").updateOne(
+    const result = await db.collection("merchants").updateOne(
       { _id: new ObjectId(id) },
       { $set: update }
     );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Merchant no encontrado" });
+    }
 
     res.json({ success: true });
   } catch (e) {
@@ -120,7 +122,13 @@ router.delete("/merchant/:id", checkAdmin, async (req, res) => {
     const { id } = req.params;
 
     const db = getDB();
-    await db.collection("merchants").deleteOne({ _id: new ObjectId(id) });
+    const result = await db
+      .collection("merchants")
+      .deleteOne({ _id: new ObjectId(id) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "Merchant no encontrado" });
+    }
 
     res.json({ success: true });
   } catch (e) {
