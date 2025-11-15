@@ -186,7 +186,7 @@ router.get("/merchants", checkAdmin, async (req, res) => {
 
 /**
  * POST /admin/create
- * body: { username, wallet?, walletMode?, password }
+ * body: { username, wallet?, walletMode?, password, destinationWallet? }
  */
 router.post("/create", checkAdmin, async (req, res) => {
   try {
@@ -194,13 +194,17 @@ router.post("/create", checkAdmin, async (req, res) => {
       req.body || {};
 
     if (!username || !password) {
-      return res.status(400).json({ error: "Usuario y contraseña son obligatorios" });
+      return res
+        .status(400)
+        .json({ error: "Usuario y contraseña son obligatorios" });
     }
 
     const normalizedWalletMode = walletMode === "auto" ? "auto" : "manual";
 
     if (normalizedWalletMode === "manual" && !wallet) {
-      return res.status(400).json({ error: "Debes indicar una wallet para el modo manual" });
+      return res
+        .status(400)
+        .json({ error: "Debes indicar una wallet para el modo manual" });
     }
 
     if (wallet && !isValidPublicKey(wallet)) {
@@ -358,13 +362,15 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
 
     const destinationWallet = (merchant.destinationWallet || "").trim();
     if (!destinationWallet) {
-      return res
-        .status(400)
-        .json({ error: "Configura una wallet de destino antes de reclamar" });
+      return res.status(400).json({
+        error: "Configura una wallet de destino antes de reclamar",
+      });
     }
 
     if (!merchant.wallet) {
-      return res.status(400).json({ error: "El merchant no tiene wallet asignada" });
+      return res
+        .status(400)
+        .json({ error: "El merchant no tiene wallet asignada" });
     }
 
     const privateKeyDoc = await db
@@ -406,7 +412,9 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
     }
 
     if (!claimResult || !claimResult.amount || claimResult.amount <= 0) {
-      return res.status(400).json({ error: "No hay saldo disponible para reclamar" });
+      return res
+        .status(400)
+        .json({ error: "No hay saldo disponible para reclamar" });
     }
 
     const claimsCollection = db.collection("claims");
@@ -429,7 +437,9 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error("admin POST /merchant/:id/claim", error);
-    res.status(500).json({ error: error.message || "Error al ejecutar claim" });
+    res
+      .status(500)
+      .json({ error: error.message || "Error al ejecutar claim" });
   }
 });
 
@@ -561,7 +571,8 @@ async function executeUsdcClaim(keypair, destinationPk) {
   ]);
 
   const uiAmount = parseFloat(
-    tokenBalance.value?.uiAmountString ?? `${tokenBalance.value?.uiAmount ?? 0}`
+    tokenBalance.value?.uiAmountString ??
+      `${tokenBalance.value?.uiAmount ?? 0}`
   );
 
   return {

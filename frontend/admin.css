@@ -312,3 +312,19 @@ body {
   min-height: 22px;
   margin-top: 10px;
 }
+
+.keys-section {
+  margin-top: 50px;
+  background: #170024;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 0 25px rgba(118, 0, 255, 0.25);
+}
+
+.keys-section .subtitle {
+  margin-top: 0;
+}
+
+#keysTable {
+  margin-top: 20px;
+}

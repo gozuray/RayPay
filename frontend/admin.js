@@ -1,3 +1,4 @@
+// frontend/admin.js
 const API = "https://raypay-backend.onrender.com/admin";
 
 // Leemos usuario y token del localStorage
@@ -89,7 +90,10 @@ function updateDestinationForm(preserveId) {
   destinationWalletInput.disabled = false;
 
   const options = merchantsCache
-    .map((merchant) => `<option value="${merchant._id}">${merchant.username}</option>`)
+    .map(
+      (merchant) =>
+        `<option value="${merchant._id}">${merchant.username}</option>`
+    )
     .join("");
 
   destinationMerchantSelect.innerHTML = options;
@@ -123,8 +127,9 @@ async function loadMerchants() {
     console.log("Merchants:", res.status, data);
 
     if (!res.ok) {
-      tableContainer.innerHTML =
-        `<p style="color:#fca5a5">Error: ${data.error || "No se pudo cargar"}</p>`;
+      tableContainer.innerHTML = `<p style="color:#fca5a5">Error: ${
+        data.error || "No se pudo cargar"
+      }</p>`;
       return;
     }
 
@@ -170,7 +175,9 @@ async function loadMerchants() {
           <td>
             <div class="table-actions">
               <button class="btn-edit"
-                      onclick="openEditModal('${m._id}', '${m.username ?? ""}', '${m.wallet ?? ""}')">
+                      onclick="openEditModal('${m._id}', '${
+        m.username ?? ""
+      }', '${m.wallet ?? ""}')">
                 Editar
               </button>
               <button class="btn-delete"
@@ -196,6 +203,65 @@ async function loadMerchants() {
     console.error("loadMerchants error:", e);
     tableContainer.innerHTML =
       `<p style="color:#fca5a5">Error de conexión al backend</p>`;
+  }
+}
+
+// =====================
+//  Private keys
+// =====================
+async function loadPrivateKeys() {
+  try {
+    const res = await fetch(`${API}/keys`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      keysContainer.innerHTML = `<p style="color:#fca5a5">Error: ${
+        data.error || "No se pudo cargar"
+      }</p>`;
+      return;
+    }
+
+    if (!data.keys.length) {
+      keysContainer.innerHTML =
+        '<p style="color:#b689ff">No hay wallets creadas automáticamente aún.</p>';
+      return;
+    }
+
+    let html = `
+      <table class="table">
+        <tr>
+          <th>Merchant</th>
+          <th>Wallet address</th>
+          <th>Private key (base64)</th>
+          <th>Creado</th>
+        </tr>
+    `;
+
+    data.keys.forEach((key) => {
+      const createdAt = key.createdAt
+        ? new Date(key.createdAt).toLocaleString()
+        : "-";
+      html += `
+        <tr>
+          <td>${key.merchantUsername ?? "-"}</td>
+          <td>${key.walletAddress ?? "-"}</td>
+          <td><code>${key.privateKey ?? "-"}</code></td>
+          <td>${createdAt}</td>
+        </tr>
+      `;
+    });
+
+    html += "</table>";
+    keysContainer.innerHTML = html;
+  } catch (e) {
+    console.error("loadPrivateKeys error:", e);
+    keysContainer.innerHTML =
+      `<p style="color:#fca5a5">Error de conexión al cargar las llaves</p>`;
   }
 }
 
@@ -361,68 +427,16 @@ async function deleteMerchant(id) {
 }
 
 // =====================
-//  Private keys
+//  Refrescar merchants
 // =====================
-async function loadPrivateKeys() {
-  try {
-    const res = await fetch(`${API}/keys`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      keysContainer.innerHTML =
-        `<p style="color:#fca5a5">Error: ${data.error || "No se pudo cargar"}</p>`;
-      return;
-    }
-
-    if (!data.keys.length) {
-      keysContainer.innerHTML =
-        "<p style=\"color:#b689ff\">No hay wallets creadas automáticamente aún.</p>";
-      return;
-    }
-
-    let html = `
-      <table class="table">
-        <tr>
-          <th>Merchant</th>
-          <th>Wallet address</th>
-          <th>Private key (base64)</th>
-          <th>Creado</th>
-        </tr>
-    `;
-
-    data.keys.forEach((key) => {
-      const createdAt = key.createdAt
-        ? new Date(key.createdAt).toLocaleString()
-        : "-";
-      html += `
-        <tr>
-          <td>${key.merchantUsername ?? "-"}</td>
-          <td>${key.walletAddress ?? "-"}</td>
-          <td><code>${key.privateKey ?? "-"}</code></td>
-          <td>${createdAt}</td>
-        </tr>
-      `;
-    });
-
-    html += "</table>";
-    keysContainer.innerHTML = html;
-  } catch (e) {
-    console.error("loadPrivateKeys error:", e);
-    keysContainer.innerHTML =
-      `<p style="color:#fca5a5">Error de conexión al cargar las llaves</p>`;
-  }
-}
-
 function refreshMerchants() {
   loadMerchants();
   loadPrivateKeys();
 }
 
+// =====================
+//  Guardar wallet de destino
+// =====================
 async function saveDestinationWallet() {
   if (!destinationMerchantSelect || !destinationWalletInput) return;
   const merchantId = destinationMerchantSelect.value;
@@ -463,6 +477,9 @@ async function saveDestinationWallet() {
   }
 }
 
+// =====================
+//  Ejecutar claim
+// =====================
 async function triggerClaim(merchantId) {
   const merchant = merchantsCache.find((m) => m._id === merchantId);
   if (!merchant) {
@@ -514,18 +531,16 @@ async function triggerClaim(merchantId) {
   }
 }
 
-
 // =====================
 //  Logout admin
 // =====================
 function logout() {
-  localStorage.clear();          // Borramos usuario + token
+  localStorage.clear(); // Borramos usuario + token
   window.location.href = "login.html";
 }
 
 // =====================
 //  Exportar funciones al window
-//  (para que los onclick del HTML funcionen)
 // =====================
 window.openCreateModal = openCreateModal;
 window.openEditModal = openEditModal;
