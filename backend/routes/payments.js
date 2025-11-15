@@ -3,7 +3,8 @@ import express from "express";
 import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
-import { getDB } from "./db.js";
+import { getDB } from "../db.js";
+
 
 const router = express.Router();
 
