@@ -1,20 +1,29 @@
 // frontend/main.js
 
 // 🚨 Protección del POS (index.html)
-(function () {
-  const token = localStorage.getItem("raypay_token");
-  const userStr = localStorage.getItem("raypay_user");
+const token = localStorage.getItem("raypay_token");
+const rawUser = localStorage.getItem("raypay_user");
+let currentUser = null;
 
-  if (!token || !userStr) {
-    window.location.href = "login.html";
-    return;
+if (rawUser) {
+  try {
+    currentUser = JSON.parse(rawUser);
+  } catch (error) {
+    console.warn("No se pudo leer raypay_user, limpiando sesión", error);
+    localStorage.removeItem("raypay_token");
+    localStorage.removeItem("raypay_user");
   }
-})();
+}
+
+if (!token || !currentUser) {
+  window.location.href = "login.html";
+} else if (currentUser.role === "admin") {
+  window.location.href = "admin.html";
+}
 
 // === Usuario logueado ===
-const currentUser = JSON.parse(localStorage.getItem("raypay_user"));
-const merchantWallet = currentUser.wallet;
-const merchantName = currentUser.name || "Restaurante";
+const merchantWallet = currentUser?.wallet;
+const merchantName = currentUser?.name || "Restaurante";
 
 // === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
