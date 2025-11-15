@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import adminRoutes from "./routes/admin.js";
 
 // ⚙️ Cargar .env desde la misma carpeta del server.js (ESM safe)
 const __filename = fileURLToPath(import.meta.url);
@@ -45,6 +46,7 @@ await connectMongo();
 // Rutas
 app.use("/api/auth", authRoutes);       // /api/auth/register, /api/auth/login
 app.use("/", paymentsRoutes);           // mantiene /create-payment, /confirm/:ref, /transactions, etc.
+app.use("/admin", adminRoutes);
 
 app.get("/", (_req, res) => {
   res.send("✅ RayPay Backend - Auth + Payments listo");

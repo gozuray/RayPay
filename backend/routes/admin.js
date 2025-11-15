@@ -1,15 +1,21 @@
+// backend/routes/admin.js
 import express from "express";
-import { getDB } from "../db.js";
-import { verifyToken } from "../utils/auth.js";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
+import { getDB } from "../db.js";
+import { verifyToken } from "../utils/auth.js";
 
 const router = express.Router();
 
-// 1️⃣ Verificar si es admin
+/**
+ * Middleware: verifica que el token JWT sea válido
+ * y que el usuario tenga role === "admin"
+ */
 function checkAdmin(req, res, next) {
   const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ error: "Falta token" });
+  if (!auth) {
+    return res.status(401).json({ error: "Falta token" });
+  }
 
   const token = auth.split(" ")[1];
   const data = verifyToken(token);
@@ -18,58 +24,109 @@ function checkAdmin(req, res, next) {
     return res.status(403).json({ error: "No autorizado" });
   }
 
+  // opcional: guardar info del admin
+  req.admin = data;
   next();
 }
 
-// 2️⃣ Obtener todos los merchants
+/**
+ * GET /admin/merchants
+ * Lista todos los merchants
+ */
 router.get("/merchants", checkAdmin, async (req, res) => {
-  const db = getDB();
-  const merchants = await db.collection("merchants").find({}).toArray();
-  res.json({ merchants });
+  try {
+    const db = getDB();
+    const merchants = await db
+      .collection("merchants")
+      .find({})
+      .project({ password: 0 }) // no enviar hashes al front
+      .toArray();
+
+    res.json({ merchants });
+  } catch (e) {
+    console.error("admin /merchants:", e);
+    res.status(500).json({ error: "Error al listar merchants" });
+  }
 });
 
-// 3️⃣ Crear merchant
+/**
+ * POST /admin/create
+ * body: { username, wallet, password }
+ */
 router.post("/create", checkAdmin, async (req, res) => {
-  const { username, wallet, password } = req.body;
-  const hashed = await bcrypt.hash(password, 10);
+  try {
+    const { username, wallet, password } = req.body || {};
 
-  const db = getDB();
-  await db.collection("merchants").insertOne({
-    username,
-    wallet,
-    password: hashed,
-    role: "merchant",
-  });
+    if (!username || !wallet || !password) {
+      return res.status(400).json({ error: "Faltan campos" });
+    }
 
-  res.json({ success: true });
+    const db = getDB();
+    const merchants = db.collection("merchants");
+
+    const existing = await merchants.findOne({ username });
+    if (existing) {
+      return res.status(400).json({ error: "Ese usuario ya existe" });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await merchants.insertOne({
+      username,
+      wallet,
+      password: hashed,
+      role: "merchant",
+    });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("admin /create:", e);
+    res.status(500).json({ error: "Error al crear merchant" });
+  }
 });
 
-// 4️⃣ Editar merchant
+/**
+ * PUT /admin/merchant/:id
+ * body: { username?, wallet?, password? }
+ */
 router.put("/merchant/:id", checkAdmin, async (req, res) => {
-  const { username, wallet, password } = req.body;
-  const id = req.params.id;
+  try {
+    const { id } = req.params;
+    const { username, wallet, password } = req.body || {};
 
-  const update = {};
-  if (username) update.username = username;
-  if (wallet) update.wallet = wallet;
-  if (password) update.password = await bcrypt.hash(password, 10);
+    const update = {};
+    if (username) update.username = username;
+    if (wallet) update.wallet = wallet;
+    if (password) update.password = await bcrypt.hash(password, 10);
 
-  const db = getDB();
-  await db.collection("merchants").updateOne(
-    { _id: new ObjectId(id) },
-    { $set: update }
-  );
+    const db = getDB();
+    await db.collection("merchants").updateOne(
+      { _id: new ObjectId(id) },
+      { $set: update }
+    );
 
-  res.json({ success: true });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("admin PUT /merchant:", e);
+    res.status(500).json({ error: "Error al editar merchant" });
+  }
 });
 
-// 5️⃣ Borrar merchant
+/**
+ * DELETE /admin/merchant/:id
+ */
 router.delete("/merchant/:id", checkAdmin, async (req, res) => {
-  const id = req.params.id;
-  const db = getDB();
-  await db.collection("merchants").deleteOne({ _id: new ObjectId(id) });
+  try {
+    const { id } = req.params;
 
-  res.json({ success: true });
+    const db = getDB();
+    await db.collection("merchants").deleteOne({ _id: new ObjectId(id) });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("admin DELETE /merchant:", e);
+    res.status(500).json({ error: "Error al borrar merchant" });
+  }
 });
 
 export default router;
