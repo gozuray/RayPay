@@ -1,13 +1,16 @@
 const API = "https://raypay-backend.onrender.com/admin";
 
+// Leemos usuario y token del localStorage
 const user = JSON.parse(localStorage.getItem("raypay_user"));
 const token = localStorage.getItem("raypay_token");
 
+// Si no hay usuario o no es admin → bloquear pantalla
 if (!user || user.role !== "admin") {
   document.body.innerHTML = "<h2>No autorizado</h2>";
   throw new Error("No autorizado");
 }
 
+// Referencias al DOM
 const tableContainer = document.getElementById("merchantsTable");
 const modal = document.getElementById("modal");
 const modalTitle = document.getElementById("modalTitle");
@@ -16,8 +19,12 @@ const formWallet = document.getElementById("formWallet");
 const formPassword = document.getElementById("formPassword");
 const saveBtn = document.getElementById("saveBtn");
 
+// Guardamos el ID del merchant que estamos editando
 let editingID = null;
 
+// =====================
+//  Cargar merchants
+// =====================
 async function loadMerchants() {
   try {
     const res = await fetch(`${API}/merchants`, {
@@ -47,11 +54,17 @@ async function loadMerchants() {
     data.merchants.forEach((m) => {
       html += `
         <tr>
-          <td>${m.username}</td>
-          <td>${m.wallet}</td>
+          <td>${m.username ?? "undefined"}</td>
+          <td>${m.wallet ?? "-"}</td>
           <td>
-            <button class="btn-edit" onclick="openEditModal('${m._id}', '${m.username}', '${m.wallet}')">Editar</button>
-            <button class="btn-delete" onclick="deleteMerchant('${m._id}')">Eliminar</button>
+            <button class="btn-edit"
+                    onclick="openEditModal('${m._id}', '${m.username ?? ""}', '${m.wallet ?? ""}')">
+              Editar
+            </button>
+            <button class="btn-delete"
+                    onclick="deleteMerchant('${m._id}')">
+              Eliminar
+            </button>
           </td>
         </tr>
       `;
@@ -66,9 +79,12 @@ async function loadMerchants() {
   }
 }
 
+// Cargamos al entrar
 loadMerchants();
 
-// MODAL
+// =====================
+//  MODAL: crear / editar
+// =====================
 function openCreateModal() {
   editingID = null;
   modalTitle.innerText = "Crear nuevo merchant";
@@ -93,10 +109,14 @@ function closeModal() {
   modal.style.display = "none";
 }
 
+// Cerrar modal si clicas fuera
 window.onclick = (e) => {
   if (e.target === modal) closeModal();
 };
 
+// =====================
+//  Crear merchant
+// =====================
 async function createMerchant() {
   const body = {
     username: formUsername.value.trim(),
@@ -127,6 +147,9 @@ async function createMerchant() {
   loadMerchants();
 }
 
+// =====================
+//  Guardar edición
+// =====================
 async function saveEdit() {
   const body = {
     username: formUsername.value.trim(),
@@ -155,6 +178,9 @@ async function saveEdit() {
   loadMerchants();
 }
 
+// =====================
+//  Eliminar merchant
+// =====================
 async function deleteMerchant(id) {
   if (!confirm("¿Eliminar merchant?")) return;
 
@@ -173,11 +199,18 @@ async function deleteMerchant(id) {
   loadMerchants();
 }
 
+// =====================
+//  Logout admin
+// =====================
 function logout() {
-  localStorage.clear();
+  localStorage.clear();          // Borramos usuario + token
   window.location.href = "login.html";
 }
 
+// =====================
+//  Exportar funciones al window
+//  (para que los onclick del HTML funcionen)
+// =====================
 window.openCreateModal = openCreateModal;
 window.openEditModal = openEditModal;
 window.deleteMerchant = deleteMerchant;

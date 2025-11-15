@@ -7,16 +7,24 @@
 </head>
 
 <body>
+  <!-- Sidebar / menú lateral -->
   <div class="sidebar">
     <h2>⚙️ Admin</h2>
     <ul>
       <li class="active">Merchants</li>
-      <li onclick="logout()">Cerrar sesión</li>
+      <!-- 🔐 Cerrar sesión admin -->
+      <li onclick="logout()">Cerrar sesión ⮐</li>
     </ul>
   </div>
 
+  <!-- Contenido principal -->
   <div class="main">
-    <h1>RayPay — Panel de Administración</h1>
+    <div class="topbar">
+      <h1>RayPay — Panel de Administración</h1>
+      <!-- Botón de cerrar sesión arriba -->
+      <button class="btn-logout" onclick="logout()">Cerrar sesión</button>
+    </div>
+
     <p class="subtitle">Gestiona todos los negocios desde un solo lugar.</p>
 
     <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
