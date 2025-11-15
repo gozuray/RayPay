@@ -3,7 +3,7 @@ const API = "https://raypay-backend.onrender.com/admin";
 
 // Leemos usuario y token del localStorage
 const user = JSON.parse(localStorage.getItem("raypay_user"));
-const token = localStorage.getItem("raypay_token"));
+const token = localStorage.getItem("raypay_token");
 
 // Si no hay usuario o no es admin → bloquear pantalla
 if (!user || user.role !== "admin") {
@@ -17,6 +17,8 @@ const keysContainer = document.getElementById("keysTable");
 const destinationMerchantSelect = document.getElementById("destinationMerchantSelect");
 const destinationWalletInput = document.getElementById("destinationWalletInput");
 const destinationStatus = document.getElementById("destinationStatus");
+const tabButtons = document.querySelectorAll("[data-tab-target]");
+const tabPanels = document.querySelectorAll(".subpanel");
 const modal = document.getElementById("modal");
 const modalTitle = document.getElementById("modalTitle");
 const formUsername = document.getElementById("formUsername");
@@ -33,6 +35,24 @@ let merchantsCache = [];
 // =====================
 //  Helpers de UI
 // =====================
+function setupSubtabs() {
+  if (!tabButtons.length || !tabPanels.length) return;
+
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.dataset.tabTarget;
+
+      tabButtons.forEach((btn) => btn.classList.toggle("active", btn === button));
+
+      tabPanels.forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.panel === target);
+      });
+    });
+  });
+}
+
+setupSubtabs();
+
 function toggleWalletInput() {
   if (formWalletMode.value === "manual") {
     manualWalletWrapper.classList.add("visible");
@@ -115,8 +135,13 @@ if (destinationMerchantSelect) {
 // =====================
 //  Cargar merchants
 // =====================
-async function loadMerchants() {
+async function loadMerchants(showLoadingMessage = false) {
   const previousSelection = destinationMerchantSelect?.value || "";
+
+  if (showLoadingMessage && tableContainer) {
+    tableContainer.innerHTML =
+      '<p class="table-status">Consultando historial de pagos en la base de datos...</p>';
+  }
   try {
     const res = await fetch(`${API}/merchants`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -126,8 +151,8 @@ async function loadMerchants() {
     console.log("Merchants:", res.status, data);
 
     if (!res.ok) {
-      tableContainer.innerHTML = `<p style="color:#fca5a5">Error: ${
-        data.error || "No se pudo cargar"
+      tableContainer.innerHTML = `<p class="table-status error">Error: ${
+        data.error || "No se pudo cargar la información"
       }</p>`;
       return;
     }
@@ -137,7 +162,7 @@ async function loadMerchants() {
 
     if (!merchants.length) {
       tableContainer.innerHTML =
-        '<p style="color:#b689ff">No hay merchants registrados aún.</p>';
+        '<p class="table-status">No hay merchants registrados aún.</p>';
       updateDestinationForm(previousSelection);
       return;
     }
@@ -201,7 +226,26 @@ async function loadMerchants() {
   } catch (e) {
     console.error("loadMerchants error:", e);
     tableContainer.innerHTML =
-      `<p style="color:#fca5a5">Error de conexión al backend</p>`;
+      '<p class="table-status error">Error de conexión con el backend</p>';
+  }
+}
+
+async function refreshMerchants() {
+  const refreshBtn = document.getElementById("refreshMerchantsBtn");
+  const originalLabel = refreshBtn?.innerHTML;
+
+  try {
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Actualizando...";
+    }
+
+    await loadMerchants(true);
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = originalLabel;
+    }
   }
 }
 
@@ -264,7 +308,7 @@ async function loadPrivateKeys() {
 }
 
 // Cargar al inicio
-loadMerchants();
+loadMerchants(true);
 loadPrivateKeys();
 
 // =====================
