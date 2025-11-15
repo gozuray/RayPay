@@ -209,6 +209,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
 }
+
 /* 🔥 Botón cerrar sesión arriba a la derecha */
 .btn-logout {
   position: absolute;
@@ -233,7 +234,8 @@ body {
 .topbar {
   position: relative;
 }
-/* 🔥 Centrar botones de la tabla (versión completa) */
+
+/* 🔥 Centrar botones de la tabla */
 #merchantsTable table td:nth-child(4),
 #merchantsTable table th:nth-child(4) {
   text-align: center !important;
@@ -245,6 +247,7 @@ body {
   align-items: center;
   gap: 10px;
 }
+
 .keys-section {
   margin-top: 50px;
   background: #170024;

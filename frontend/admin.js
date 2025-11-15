@@ -1,8 +1,9 @@
+// frontend/admin.js
 const API = "https://raypay-backend.onrender.com/admin";
 
 // Leemos usuario y token del localStorage
 const user = JSON.parse(localStorage.getItem("raypay_user"));
-const token = localStorage.getItem("raypay_token");
+const token = localStorage.getItem("raypay_token"));
 
 // Si no hay usuario o no es admin → bloquear pantalla
 if (!user || user.role !== "admin") {
@@ -13,12 +14,8 @@ if (!user || user.role !== "admin") {
 // Referencias al DOM
 const tableContainer = document.getElementById("merchantsTable");
 const keysContainer = document.getElementById("keysTable");
-const destinationMerchantSelect = document.getElementById(
-  "destinationMerchantSelect"
-);
-const destinationWalletInput = document.getElementById(
-  "destinationWalletInput"
-);
+const destinationMerchantSelect = document.getElementById("destinationMerchantSelect");
+const destinationWalletInput = document.getElementById("destinationWalletInput");
 const destinationStatus = document.getElementById("destinationStatus");
 const modal = document.getElementById("modal");
 const modalTitle = document.getElementById("modalTitle");
@@ -29,10 +26,13 @@ const formWalletMode = document.getElementById("formWalletMode");
 const manualWalletWrapper = document.getElementById("manualWalletWrapper");
 const saveBtn = document.getElementById("saveBtn");
 
-// Guardamos el ID del merchant que estamos editando
+// Variables globales
 let editingID = null;
 let merchantsCache = [];
 
+// =====================
+//  Helpers de UI
+// =====================
 function toggleWalletInput() {
   if (formWalletMode.value === "manual") {
     manualWalletWrapper.classList.add("visible");
@@ -58,11 +58,15 @@ function setDestinationStatus(message, isError = false) {
   destinationStatus.style.color = isError ? "#ff8a8a" : "#7af0d2";
 }
 
+// Sincroniza input de wallet destino con merchant seleccionado
 function syncDestinationWalletInput() {
   if (!destinationMerchantSelect || !destinationWalletInput) return;
+
   const targetId = destinationMerchantSelect.value;
   const merchant = merchantsCache.find((m) => m._id === targetId);
+
   destinationWalletInput.value = merchant?.destinationWallet ?? "";
+
   if (merchant) {
     setDestinationStatus(
       merchant.destinationWallet
@@ -72,6 +76,7 @@ function syncDestinationWalletInput() {
   }
 }
 
+// Actualiza opciones del select + mantiene selección
 function updateDestinationForm(preserveId) {
   if (!destinationMerchantSelect || !destinationWalletInput) return;
 
@@ -89,7 +94,7 @@ function updateDestinationForm(preserveId) {
   destinationWalletInput.disabled = false;
 
   const options = merchantsCache
-    .map((merchant) => `<option value="${merchant._id}">${merchant.username}</option>`)
+    .map((m) => `<option value="${m._id}">${m.username}</option>`)
     .join("");
 
   destinationMerchantSelect.innerHTML = options;
@@ -114,17 +119,16 @@ async function loadMerchants() {
   const previousSelection = destinationMerchantSelect?.value || "";
   try {
     const res = await fetch(`${API}/merchants`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     const data = await res.json();
     console.log("Merchants:", res.status, data);
 
     if (!res.ok) {
-      tableContainer.innerHTML =
-        `<p style="color:#fca5a5">Error: ${data.error || "No se pudo cargar"}</p>`;
+      tableContainer.innerHTML = `<p style="color:#fca5a5">Error: ${
+        data.error || "No se pudo cargar"
+      }</p>`;
       return;
     }
 
@@ -151,16 +155,16 @@ async function loadMerchants() {
     merchants.forEach((m) => {
       const solBalance = formatBalance(m.balances?.sol ?? 0, 4);
       const usdcBalance = formatBalance(m.balances?.usdc ?? 0, 2);
-      const destination = m.destinationWallet ?? "";
-      const disableClaim = !destination;
+
+      const disableClaim = !m.destinationWallet;
       const claimTitle = disableClaim
         ? "Configura una wallet destino para habilitar claim"
-        : `Enviar fondos a ${destination}`;
+        : `Enviar fondos a ${m.destinationWallet}`;
 
       html += `
         <tr>
           <td>${m.username ?? "undefined"}</td>
-          <td>${m.wallet ?? "-"}</td>
+          <td>${m.wallet || "-"}</td>
           <td>
             <div class="balance-pill">
               <span><strong>SOL:</strong> ${solBalance}</span>
@@ -170,17 +174,18 @@ async function loadMerchants() {
           <td>
             <div class="table-actions">
               <button class="btn-edit"
-                      onclick="openEditModal('${m._id}', '${m.username ?? ""}', '${m.wallet ?? ""}')">
+                onclick="openEditModal('${m._id}', '${m.username ?? ""}', '${m.wallet ?? ""}')">
                 Editar
               </button>
-              <button class="btn-delete"
-                      onclick="deleteMerchant('${m._id}')">
+
+              <button class="btn-delete" onclick="deleteMerchant('${m._id}')">
                 Eliminar
               </button>
+
               <button class="btn-claim"
-                      title="${claimTitle}"
-                      ${disableClaim ? "disabled" : ""}
-                      onclick="triggerClaim('${m._id}')">
+                title="${claimTitle}"
+                ${disableClaim ? "disabled" : ""}
+                onclick="triggerClaim('${m._id}')">
                 Claim
               </button>
             </div>
@@ -191,6 +196,7 @@ async function loadMerchants() {
 
     html += "</table>";
     tableContainer.innerHTML = html;
+
     updateDestinationForm(previousSelection);
   } catch (e) {
     console.error("loadMerchants error:", e);
@@ -199,12 +205,70 @@ async function loadMerchants() {
   }
 }
 
-// Cargamos al entrar
+// =====================
+//  Private keys
+// =====================
+async function loadPrivateKeys() {
+  try {
+    const res = await fetch(`${API}/keys`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      keysContainer.innerHTML = `<p style="color:#fca5a5">Error: ${
+        data.error || "No se pudo cargar"
+      }</p>`;
+      return;
+    }
+
+    if (!data.keys.length) {
+      keysContainer.innerHTML =
+        '<p style="color:#b689ff">No hay wallets creadas automáticamente aún.</p>';
+      return;
+    }
+
+    let html = `
+      <table class="table">
+        <tr>
+          <th>Merchant</th>
+          <th>Wallet address</th>
+          <th>Private key (base64)</th>
+          <th>Creado</th>
+        </tr>
+    `;
+
+    data.keys.forEach((key) => {
+      const createdAt = key.createdAt
+        ? new Date(key.createdAt).toLocaleString()
+        : "-";
+
+      html += `
+        <tr>
+          <td>${key.merchantUsername ?? "-"}</td>
+          <td>${key.walletAddress ?? "-"}</td>
+          <td><code>${key.privateKey ?? "-"}</code></td>
+          <td>${createdAt}</td>
+        </tr>
+      `;
+    });
+
+    html += "</table>";
+    keysContainer.innerHTML = html;
+  } catch (e) {
+    console.error("loadPrivateKeys error:", e);
+    keysContainer.innerHTML =
+      `<p style="color:#fca5a5">Error de conexión al cargar las llaves</p>`;
+  }
+}
+
+// Cargar al inicio
 loadMerchants();
 loadPrivateKeys();
 
 // =====================
-//  MODAL: crear / editar
+//  MODAL: Crear / Editar
 // =====================
 function openCreateModal() {
   editingID = null;
@@ -236,7 +300,6 @@ function closeModal() {
   formWalletMode.disabled = false;
 }
 
-// Cerrar modal si clicas fuera
 window.onclick = (e) => {
   if (e.target === modal) closeModal();
 };
@@ -275,6 +338,7 @@ async function createMerchant() {
   });
 
   const data = await res.json();
+
   if (!res.ok) {
     alert(data.error || "Error al crear merchant");
     return;
@@ -314,6 +378,7 @@ async function saveEdit() {
   });
 
   const data = await res.json();
+
   if (!res.ok) {
     alert(data.error || "Error al editar merchant");
   }
@@ -332,26 +397,19 @@ async function deleteMerchant(id) {
   try {
     const res = await fetch(`${API}/merchant/${id}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     let data = {};
     try {
       data = await res.json();
-    } catch (e) {
-      console.warn("Respuesta no JSON en DELETE:", e);
-    }
-
-    console.log("DELETE /admin/merchant:", res.status, data);
+    } catch {}
 
     if (!res.ok) {
       alert(data.error || "Error al eliminar merchant");
       return;
     }
 
-    // Recargar lista
     loadMerchants();
     loadPrivateKeys();
   } catch (e) {
@@ -361,70 +419,9 @@ async function deleteMerchant(id) {
 }
 
 // =====================
-//  Private keys
+//  Guardar wallet destino
 // =====================
-async function loadPrivateKeys() {
-  try {
-    const res = await fetch(`${API}/keys`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      keysContainer.innerHTML =
-        `<p style="color:#fca5a5">Error: ${data.error || "No se pudo cargar"}</p>`;
-      return;
-    }
-
-    if (!data.keys.length) {
-      keysContainer.innerHTML =
-        "<p style=\"color:#b689ff\">No hay wallets creadas automáticamente aún.</p>";
-      return;
-    }
-
-    let html = `
-      <table class="table">
-        <tr>
-          <th>Merchant</th>
-          <th>Wallet address</th>
-          <th>Private key (base64)</th>
-          <th>Creado</th>
-        </tr>
-    `;
-
-    data.keys.forEach((key) => {
-      const createdAt = key.createdAt
-        ? new Date(key.createdAt).toLocaleString()
-        : "-";
-      html += `
-        <tr>
-          <td>${key.merchantUsername ?? "-"}</td>
-          <td>${key.walletAddress ?? "-"}</td>
-          <td><code>${key.privateKey ?? "-"}</code></td>
-          <td>${createdAt}</td>
-        </tr>
-      `;
-    });
-
-    html += "</table>";
-    keysContainer.innerHTML = html;
-  } catch (e) {
-    console.error("loadPrivateKeys error:", e);
-    keysContainer.innerHTML =
-      `<p style="color:#fca5a5">Error de conexión al cargar las llaves</p>`;
-  }
-}
-
-function refreshMerchants() {
-  loadMerchants();
-  loadPrivateKeys();
-}
-
 async function saveDestinationWallet() {
-  if (!destinationMerchantSelect || !destinationWalletInput) return;
   const merchantId = destinationMerchantSelect.value;
   if (!merchantId) {
     setDestinationStatus("Selecciona un merchant primero", true);
@@ -432,9 +429,8 @@ async function saveDestinationWallet() {
   }
 
   const wallet = destinationWalletInput.value.trim();
-  if (!wallet && !confirm("¿Deseas dejar sin wallet de destino este merchant?")) {
-    return;
-  }
+
+  if (!wallet && !confirm("¿Dejar sin wallet destino?")) return;
 
   try {
     const res = await fetch(`${API}/merchant/${merchantId}/destination`, {
@@ -447,31 +443,39 @@ async function saveDestinationWallet() {
     });
 
     const data = await res.json();
+
     if (!res.ok) {
       setDestinationStatus(data.error || "Error al guardar destino", true);
       return;
     }
 
     await loadMerchants();
-    const message = data.destinationWallet
-      ? `Destino actualizado: ${data.destinationWallet}`
-      : "Destino eliminado. Claim deshabilitado.";
-    setDestinationStatus(message, false);
+
+    setDestinationStatus(
+      data.destinationWallet
+        ? `Destino actualizado: ${data.destinationWallet}`
+        : "Destino eliminado. Claim deshabilitado.",
+      false
+    );
   } catch (error) {
     console.error("saveDestinationWallet error:", error);
     setDestinationStatus("Error de conexión al guardar destino", true);
   }
 }
 
+// =====================
+//  Ejecutar claim
+// =====================
 async function triggerClaim(merchantId) {
   const merchant = merchantsCache.find((m) => m._id === merchantId);
+
   if (!merchant) {
-    alert("Merchant no encontrado en memoria");
+    alert("Merchant no encontrado");
     return;
   }
 
   if (!merchant.destinationWallet) {
-    alert("Configura una wallet de destino antes de usar Claim");
+    alert("Configura una wallet destino antes de usar Claim");
     return;
   }
 
@@ -482,11 +486,13 @@ async function triggerClaim(merchantId) {
   if (!claimTokenInput) return;
 
   const normalized = claimTokenInput.toUpperCase() === "USDC" ? "USDC" : "SOL";
-  const confirmMessage = `Vas a reclamar el saldo disponible en ${normalized} de ${
-    merchant.username || "merchant"
-  } hacia ${merchant.destinationWallet}.`;
 
-  if (!confirm(confirmMessage)) return;
+  if (
+    !confirm(
+      `Vas a reclamar ${normalized} de ${merchant.username} hacia ${merchant.destinationWallet}.`
+    )
+  )
+    return;
 
   try {
     const res = await fetch(`${API}/merchant/${merchantId}/claim`, {
@@ -499,14 +505,16 @@ async function triggerClaim(merchantId) {
     });
 
     const data = await res.json();
+
     if (!res.ok) {
       alert(data.error || "Error al ejecutar claim");
       return;
     }
 
     alert(
-      `Claim ejecutado correctamente.\nToken: ${data.token}\nMonto transferido: ${data.amount}\nTx: ${data.signature}`
+      `Claim ejecutado.\nToken: ${data.token}\nMonto: ${data.amount}\nTx: ${data.signature}`
     );
+
     loadMerchants();
   } catch (error) {
     console.error("triggerClaim error:", error);
@@ -514,18 +522,16 @@ async function triggerClaim(merchantId) {
   }
 }
 
-
 // =====================
 //  Logout admin
 // =====================
 function logout() {
-  localStorage.clear();          // Borramos usuario + token
+  localStorage.clear();
   window.location.href = "login.html";
 }
 
 // =====================
-//  Exportar funciones al window
-//  (para que los onclick del HTML funcionen)
+//  Exportar al window
 // =====================
 window.openCreateModal = openCreateModal;
 window.openEditModal = openEditModal;
