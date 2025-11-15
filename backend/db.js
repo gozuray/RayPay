@@ -1,35 +1,68 @@
 // backend/db.js
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient } from "mongodb";
+
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.MONGODB_DB || "raypay";
 
 let client;
 let db;
 
+/**
+ * Conecta a Mongo y prepara índices de merchants
+ */
 export async function connectMongo() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("❌ Falta MONGODB_URI");
+  if (db) return db; // ya conectado
 
-  // Crea el cliente aquí, cuando ya existe la env
-  client = new MongoClient(uri, {
-    serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
-  });
+  if (!MONGODB_URI) {
+    throw new Error("Falta MONGODB_URI en .env");
+  }
 
   try {
+    client = new MongoClient(MONGODB_URI);
     await client.connect();
-    await client.db("admin").command({ ping: 1 });
-    db = client.db("raypay");
+    db = client.db(DB_NAME);
+
     console.log("✅ MongoDB conectado (raypay)");
 
-    // índices mínimos
-    await db.collection("payments").createIndex({ signature: 1 }, { unique: true });
-    await db.collection("payments").createIndex({ blockTime: -1 });
-    await db.collection("merchants").createIndex({ email: 1 }, { unique: true });
+    const merchants = db.collection("merchants");
+
+    // 🧹 1) Intentar eliminar índice viejo por email (si existe)
+    try {
+      await merchants.dropIndex("email_1");
+      console.log("ℹ️ Índice obsoleto email_1 eliminado");
+    } catch (err) {
+      // Código 27 = IndexNotFound
+      if (err.codeName === "IndexNotFound" || err.code === 27) {
+        console.log("ℹ️ Índice email_1 no existía, nada que borrar");
+      } else {
+        console.warn("⚠️ No se pudo eliminar índice email_1:", err.message);
+      }
+    }
+
+    // 🧱 2) Crear índice ÚNICO por username (solo donde exista username)
+    await merchants.createIndex(
+      { username: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { username: { $exists: true } },
+        name: "username_1_unique",
+      }
+    );
+    console.log("✅ Índice único en username listo");
+
+    return db;
   } catch (e) {
     console.error("❌ Error conectando Mongo:", e);
-    process.exit(1);
+    throw e;
   }
 }
 
+/**
+ * Devuelve la instancia de la DB ya conectada
+ */
 export function getDB() {
-  if (!db) throw new Error("DB no inicializada");
+  if (!db) {
+    throw new Error("MongoDB aún no inicializado. Llama primero a connectMongo()");
+  }
   return db;
 }
