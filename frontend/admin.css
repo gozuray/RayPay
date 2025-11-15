@@ -142,3 +142,47 @@ body {
   border-radius: 6px;
   cursor: pointer;
 }
+/* 🔥 Botón cerrar sesión arriba a la derecha */
+.btn-logout {
+  position: absolute;
+  top: 20px;
+  right: 30px;
+  background: #8b0000;
+  border: none;
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: 0.25s ease-in-out;
+  z-index: 10;
+}
+
+.btn-logout:hover {
+  background: #a30000;
+  transform: scale(1.05);
+}
+
+.topbar {
+  position: relative;
+}
+/* 🔥 Centrar botones de la tabla (versión completa) */
+#merchantsTable table td:nth-child(3),
+#merchantsTable table th:nth-child(3) {
+  text-align: center !important;
+}
+
+#merchantsTable td:nth-child(3) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+
+
+
+.btn-edit,
+.btn-delete {
+  margin: 0 4px;
+  display: inline-block;
+}
