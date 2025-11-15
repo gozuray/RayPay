@@ -80,6 +80,28 @@ function isRateLimitError(error) {
   return msg.includes("429") || msg.includes("Too Many Requests");
 }
 
+async function getClaimDestinationWallet(db) {
+  const doc = await db.collection("settings").findOne({
+    key: "claimDestinationWallet",
+  });
+  return doc?.value?.trim() || "";
+}
+
+async function saveClaimDestinationWallet(db, wallet) {
+  const cleanWallet = wallet?.trim() || "";
+  await db.collection("settings").updateOne(
+    { key: "claimDestinationWallet" },
+    {
+      $set: {
+        value: cleanWallet,
+        updatedAt: new Date(),
+      },
+    },
+    { upsert: true }
+  );
+  return cleanWallet;
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -251,6 +273,8 @@ router.get("/merchants", checkAdmin, async (req, res) => {
       .project({ password: 0 })
       .toArray();
 
+    const globalDestinationWallet = await getClaimDestinationWallet(db);
+
     const paymentSums = await db
       .collection("payments")
       .aggregate([
@@ -323,11 +347,15 @@ router.get("/merchants", checkAdmin, async (req, res) => {
       return {
         ...merchant,
         balances,
-        destinationWallet: merchant.destinationWallet || "",
+        destinationWallet:
+          merchant.destinationWallet || globalDestinationWallet || "",
       };
     });
 
-    res.json({ merchants: enriched });
+    res.json({
+      merchants: enriched,
+      claimDestinationWallet: globalDestinationWallet,
+    });
   } catch (e) {
     console.error("admin /merchants:", e);
     res.status(500).json({ error: "Error al listar merchants" });
@@ -507,6 +535,8 @@ router.put("/merchant/:id/destination", checkAdmin, async (req, res) => {
       return res.status(404).json({ error: "Merchant no encontrado" });
     }
 
+    await saveClaimDestinationWallet(db, cleanWallet);
+
     res.json({ success: true, destinationWallet: cleanWallet });
   } catch (error) {
     console.error("admin PUT /merchant/:id/destination:", error);
@@ -533,7 +563,10 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
       return res.status(404).json({ error: "Merchant no encontrado" });
     }
 
-    const destinationWallet = (merchant.destinationWallet || "").trim();
+    const globalDestinationWallet = await getClaimDestinationWallet(db);
+    const destinationWallet = (
+      merchant.destinationWallet || globalDestinationWallet || ""
+    ).trim();
     if (!destinationWallet) {
       return res.status(400).json({
         error: "Configura una wallet de destino antes de reclamar",
