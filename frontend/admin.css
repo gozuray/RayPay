@@ -4,14 +4,17 @@ body {
   background: #0d0018;
   color: white;
   display: flex;
+  min-height: 100vh;
 }
 
 .sidebar {
-  width: 220px;
+  width: 240px;
   background: #140024;
-  height: 100vh;
   padding: 20px;
   box-shadow: 0 0 20px rgba(129, 0, 255, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .sidebar h2 {
@@ -22,6 +25,7 @@ body {
 .sidebar ul {
   list-style: none;
   padding: 0;
+  margin: 0;
 }
 
 .sidebar li {
@@ -38,38 +42,39 @@ body {
   background: #4c007d;
 }
 
-.main {
-  flex: 1;
-  padding: 30px;
-}
-
-.subtitle {
-  color: #b689ff;
-  margin-top: -12px;
-}
-
-.subtabs {
+.sidebar-subtabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 25px;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .subtab {
   border: 1px solid rgba(124, 58, 237, 0.5);
   background: rgba(18, 0, 33, 0.8);
   color: #e6d7ff;
-  padding: 10px 18px;
-  border-radius: 999px;
+  padding: 10px 14px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-weight: 600;
+  text-align: left;
 }
 
 .subtab.active {
   background: #7c3aed;
   color: white;
   box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+}
+
+.main {
+  flex: 1;
+  padding: 30px;
+  min-height: 100vh;
+}
+
+.subtitle {
+  color: #b689ff;
+  margin-top: -12px;
 }
 
 .subpanel {
@@ -176,8 +181,6 @@ body {
   cursor: not-allowed;
 }
 
-/* MODAL */
-
 .modal {
   display: none;
   position: fixed;
@@ -195,20 +198,11 @@ body {
   box-shadow: 0 0 25px rgba(162, 108, 255, 0.4);
 }
 
-.modal-content input {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 14px;
-  border-radius: 6px;
-  border: none;
-  background: #3a0057;
-  color: white;
-}
-
+.modal-content input,
 .modal-content select {
   width: 100%;
   padding: 10px;
-  margin-top: 6px;
+  margin-bottom: 14px;
   border-radius: 6px;
   border: none;
   background: #3a0057;
@@ -248,7 +242,6 @@ body {
   cursor: pointer;
 }
 
-/* 🔥 Botón cerrar sesión arriba a la derecha */
 .btn-logout {
   position: absolute;
   top: 20px;
@@ -273,7 +266,6 @@ body {
   position: relative;
 }
 
-/* 🔥 Centrar botones de la tabla */
 #merchantsTable table td:nth-child(4),
 #merchantsTable table th:nth-child(4) {
   text-align: center !important;
