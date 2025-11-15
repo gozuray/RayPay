@@ -209,6 +209,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
 }
+
 /* 🔥 Botón cerrar sesión arriba a la derecha */
 .btn-logout {
   position: absolute;
@@ -233,7 +234,8 @@ body {
 .topbar {
   position: relative;
 }
-/* 🔥 Centrar botones de la tabla (versión completa) */
+
+/* 🔥 Centrar botones de la tabla */
 #merchantsTable table td:nth-child(4),
 #merchantsTable table th:nth-child(4) {
   text-align: center !important;
@@ -245,6 +247,7 @@ body {
   align-items: center;
   gap: 10px;
 }
+
 .keys-section {
   margin-top: 50px;
   background: #170024;
@@ -311,20 +314,4 @@ body {
   color: #7af0d2;
   min-height: 22px;
   margin-top: 10px;
-}
-
-.keys-section {
-  margin-top: 50px;
-  background: #170024;
-  padding: 20px;
-  border-radius: 14px;
-  box-shadow: 0 0 25px rgba(118, 0, 255, 0.25);
-}
-
-.keys-section .subtitle {
-  margin-top: 0;
-}
-
-#keysTable {
-  margin-top: 20px;
 }

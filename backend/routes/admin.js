@@ -1,4 +1,3 @@
-// backend/routes/admin.js
 import express from "express";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
@@ -23,6 +22,10 @@ const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
 const connection = new Connection(RPC_URL, { commitment: "confirmed" });
 
+// ⚡ Cache de balances para evitar rate limit
+const BALANCE_CACHE_TTL_MS = Number(process.env.BALANCE_CACHE_TTL_MS || 30000);
+const balanceCache = new Map();
+
 const USDC_MINTS = {
   "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   devnet: "Gh9ZwEmdLJ8DscKNTkTqPBjAn6AoKkYzkvTzJk1io4k",
@@ -39,14 +42,11 @@ const SOL_CLAIM_FEE_BUFFER = Number(
 );
 
 /**
- * Middleware: verifica que el token JWT sea válido
- * y que el usuario tenga role === "admin"
+ * Middleware: verifica token JWT y rol admin
  */
 function checkAdmin(req, res, next) {
   const auth = req.headers.authorization;
-  if (!auth) {
-    return res.status(401).json({ error: "Falta token" });
-  }
+  if (!auth) return res.status(401).json({ error: "Falta token" });
 
   const token = auth.split(" ")[1];
   const data = verifyToken(token);
@@ -64,29 +64,103 @@ function isValidPublicKey(address) {
   try {
     new PublicKey(address);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
 
+/* ============================
+   RATE LIMIT & RPC RETRY HELPERS
+============================ */
+
+function isRateLimitError(error) {
+  if (!error) return false;
+  if (error.code === 429) return true;
+  const msg = error.message || "";
+  return msg.includes("429") || msg.includes("Too Many Requests");
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRpcRetry(fn, retries = 2, delay = 500) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0 && isRateLimitError(error)) {
+      console.warn(
+        `RPC rate-limited, retrying in ${delay}ms (${retries} left)`
+      );
+      await wait(delay);
+      return withRpcRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+/* ============================
+   CACHE HELPERS
+============================ */
+
+function readBalanceCache(walletAddress) {
+  const cached = balanceCache.get(walletAddress);
+  if (!cached) return null;
+
+  if (Date.now() - cached.timestamp > BALANCE_CACHE_TTL_MS) {
+    balanceCache.delete(walletAddress);
+    return null;
+  }
+
+  return cached.balances;
+}
+
+function writeBalanceCache(walletAddress, balances) {
+  if (walletAddress) {
+    balanceCache.set(walletAddress, {
+      balances,
+      timestamp: Date.now(),
+    });
+  }
+}
+
+function clearBalanceCache(walletAddress) {
+  if (walletAddress) balanceCache.delete(walletAddress);
+}
+
+/* ============================
+   GET BALANCES
+============================ */
+
 async function getWalletBalances(walletAddress) {
-  if (!walletAddress) {
+  if (!walletAddress || !isValidPublicKey(walletAddress)) {
+    console.warn("Wallet inválida para consulta:", walletAddress);
     return { sol: 0, usdc: 0 };
   }
 
+  const cached = readBalanceCache(walletAddress);
+  if (cached) return cached;
+
   try {
     const ownerPk = new PublicKey(walletAddress);
+
     const [solLamports, usdcBalance] = await Promise.all([
-      connection.getBalance(ownerPk).catch(() => 0),
+      withRpcRetry(() => connection.getBalance(ownerPk)).catch((e) => {
+        console.error("getBalance error:", e);
+        return 0;
+      }),
       getUsdcBalance(ownerPk).catch(() => 0),
     ]);
 
-    return {
+    const balances = {
       sol: Number(solLamports) / LAMPORTS_PER_SOL,
       usdc: usdcBalance,
     };
+
+    writeBalanceCache(walletAddress, balances);
+    return balances;
   } catch (error) {
-    console.error("getWalletBalances error", error);
+    console.error("getWalletBalances fatal:", error);
     return { sol: 0, usdc: 0 };
   }
 }
@@ -97,15 +171,21 @@ async function getUsdcBalance(ownerPk) {
 
   try {
     const mintPk = new PublicKey(mintAddress);
-    const response = await connection.getParsedTokenAccountsByOwner(ownerPk, {
-      mint: mintPk,
-    });
+
+    const response = await withRpcRetry(() =>
+      connection.getParsedTokenAccountsByOwner(ownerPk, { mint: mintPk })
+    );
 
     const tokenInfo =
-      response.value?.[0]?.account?.data?.parsed?.info?.tokenAmount;
+      response?.value?.[0]?.account?.data?.parsed?.info?.tokenAmount;
+
     return Number(tokenInfo?.uiAmount ?? 0);
   } catch (error) {
-    console.error("getUsdcBalance error", error);
+    if (isRateLimitError(error)) {
+      console.warn("Rate limit en getUsdcBalance, devolviendo 0");
+    } else {
+      console.error("getUsdcBalance error:", error);
+    }
     return 0;
   }
 }
@@ -140,7 +220,7 @@ function createAssociatedTokenAccountInstruction(
 
 function createTokenTransferInstruction(source, destination, owner, amount) {
   const data = Buffer.alloc(9);
-  data.writeUInt8(3, 0); // Transfer instruction
+  data.writeUInt8(3, 0);
   data.writeBigUInt64LE(BigInt(amount), 1);
 
   return new TransactionInstruction({
@@ -153,13 +233,18 @@ function createTokenTransferInstruction(source, destination, owner, amount) {
     data,
   });
 }
+/* ============================
+   RUTAS ADMIN
+============================ */
 
 /**
  * GET /admin/merchants
+ * Devuelve merchants + balances + destino
  */
 router.get("/merchants", checkAdmin, async (req, res) => {
   try {
     const db = getDB();
+
     const merchants = await db
       .collection("merchants")
       .find({})
@@ -186,7 +271,7 @@ router.get("/merchants", checkAdmin, async (req, res) => {
 
 /**
  * POST /admin/create
- * body: { username, wallet?, walletMode?, password, destinationWallet? }
+ * Crea merchant (manual o auto wallet)
  */
 router.post("/create", checkAdmin, async (req, res) => {
   try {
@@ -228,12 +313,14 @@ router.post("/create", checkAdmin, async (req, res) => {
     let walletAddress = wallet?.trim();
     let privateKeyBase64 = null;
 
+    // Generar wallet automática
     if (normalizedWalletMode === "auto") {
       const keypair = Keypair.generate();
       walletAddress = keypair.publicKey.toBase58();
       privateKeyBase64 = Buffer.from(keypair.secretKey).toString("base64");
     }
 
+    // Insertar merchant
     const insertResult = await merchants.insertOne({
       username,
       wallet: walletAddress,
@@ -242,6 +329,7 @@ router.post("/create", checkAdmin, async (req, res) => {
       role: "merchant",
     });
 
+    // Guardar private key si fue auto
     if (privateKeyBase64) {
       await db.collection("privateKeys").insertOne({
         merchantId: insertResult.insertedId,
@@ -276,37 +364,46 @@ router.post("/create", checkAdmin, async (req, res) => {
 
 /**
  * PUT /admin/merchant/:id
- * body: { username?, wallet?, password? }
+ * Edita merchant
  */
 router.put("/merchant/:id", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { username, wallet, password } = req.body || {};
 
+    const db = getDB();
+    const merchants = db.collection("merchants");
+
+    const merchant = await merchants.findOne({ _id: new ObjectId(id) });
+    if (!merchant) {
+      return res.status(404).json({ error: "Merchant no encontrado" });
+    }
+
     const update = {};
+
     if (username) update.username = username;
+
     if (wallet) {
       if (!isValidPublicKey(wallet)) {
         return res.status(400).json({ error: "Wallet inválida" });
       }
       update.wallet = wallet;
+      clearBalanceCache(merchant.wallet);
+      clearBalanceCache(wallet);
     }
+
     if (password) update.password = await bcrypt.hash(password, 10);
 
-    const db = getDB();
-    const merchants = db.collection("merchants");
-    const result = await merchants.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: update }
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: "Merchant no encontrado" });
+    if (Object.keys(update).length === 0) {
+      return res.json({ success: true });
     }
 
+    await merchants.updateOne({ _id: merchant._id }, { $set: update });
+
+    // sync private keys if wallet changed
     if (wallet) {
       await db.collection("privateKeys").updateMany(
-        { merchantId: new ObjectId(id) },
+        { merchantId: merchant._id },
         { $set: { walletAddress: wallet } }
       );
     }
@@ -318,6 +415,10 @@ router.put("/merchant/:id", checkAdmin, async (req, res) => {
   }
 });
 
+/**
+ * PUT /admin/merchant/:id/destination
+ * Actualiza wallet destino
+ */
 router.put("/merchant/:id/destination", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -329,7 +430,9 @@ router.put("/merchant/:id/destination", checkAdmin, async (req, res) => {
 
     const db = getDB();
     const merchants = db.collection("merchants");
+
     const cleanWallet = destinationWallet ? destinationWallet.trim() : "";
+
     const result = await merchants.updateOne(
       { _id: new ObjectId(id) },
       { $set: { destinationWallet: cleanWallet } }
@@ -341,21 +444,26 @@ router.put("/merchant/:id/destination", checkAdmin, async (req, res) => {
 
     res.json({ success: true, destinationWallet: cleanWallet });
   } catch (error) {
-    console.error("admin PUT /merchant/:id/destination", error);
+    console.error("admin PUT /merchant/:id/destination:", error);
     res.status(500).json({ error: "Error al actualizar wallet de destino" });
   }
 });
 
+/**
+ * POST /admin/merchant/:id/claim
+ * Ejecuta claim SOL o USDC
+ */
 router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { token } = req.body || {};
+
     const normalizedToken = token === "USDC" ? "USDC" : "SOL";
 
     const db = getDB();
     const merchants = db.collection("merchants");
-    const merchant = await merchants.findOne({ _id: new ObjectId(id) });
 
+    const merchant = await merchants.findOne({ _id: new ObjectId(id) });
     if (!merchant) {
       return res.status(404).json({ error: "Merchant no encontrado" });
     }
@@ -368,11 +476,12 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
     }
 
     if (!merchant.wallet) {
-      return res
-        .status(400)
-        .json({ error: "El merchant no tiene wallet asignada" });
+      return res.status(400).json({
+        error: "El merchant no tiene wallet asignada",
+      });
     }
 
+    // obtener private key
     const privateKeyDoc = await db
       .collection("privateKeys")
       .find({ merchantId: merchant._id })
@@ -381,25 +490,25 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
       .toArray();
 
     const storedKey = privateKeyDoc[0]?.privateKey;
+
     if (!storedKey) {
       return res.status(400).json({
         error:
-          "No hay llave privada guardada para este merchant. Solo las wallets automáticas soportan claim.",
+          "No hay llave privada guardada para este merchant. Solo wallets automáticas soportan claim.",
       });
     }
 
     let keypair;
     try {
       keypair = Keypair.fromSecretKey(Buffer.from(storedKey, "base64"));
-    } catch (error) {
-      console.error("Error al cargar secret key", error);
+    } catch {
       return res
         .status(500)
         .json({ error: "No se pudo reconstruir la llave privada" });
     }
 
     if (keypair.publicKey.toBase58() !== merchant.wallet) {
-      console.warn("La llave privada no coincide con la wallet del merchant");
+      console.warn("Advertencia: privateKey no coincide con la wallet del merchant");
     }
 
     let claimResult;
@@ -412,13 +521,13 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
     }
 
     if (!claimResult || !claimResult.amount || claimResult.amount <= 0) {
-      return res
-        .status(400)
-        .json({ error: "No hay saldo disponible para reclamar" });
+      return res.status(400).json({
+        error: "No hay saldo disponible para reclamar",
+      });
     }
 
-    const claimsCollection = db.collection("claims");
-    await claimsCollection.insertOne({
+    // Guardar en historial de claims
+    await db.collection("claims").insertOne({
       merchantId: merchant._id,
       merchantUsername: merchant.username,
       token: claimResult.token,
@@ -428,6 +537,8 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
       createdAt: new Date(),
     });
 
+    clearBalanceCache(merchant.wallet);
+
     res.json({
       success: true,
       token: claimResult.token,
@@ -436,35 +547,43 @@ router.post("/merchant/:id/claim", checkAdmin, async (req, res) => {
       signature: claimResult.signature,
     });
   } catch (error) {
-    console.error("admin POST /merchant/:id/claim", error);
+    console.error("admin POST /merchant/:id/claim:", error);
     res
       .status(500)
       .json({ error: error.message || "Error al ejecutar claim" });
   }
 });
-
 /**
  * DELETE /admin/merchant/:id
+ * Elimina merchant + llaves + claims
  */
 router.delete("/merchant/:id", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
     const db = getDB();
-    const result = await db
-      .collection("merchants")
-      .deleteOne({ _id: new ObjectId(id) });
+    const merchants = db.collection("merchants");
 
-    if (result.deletedCount === 0) {
+    const merchant = await merchants.findOne({ _id: new ObjectId(id) });
+    if (!merchant) {
       return res.status(404).json({ error: "Merchant no encontrado" });
     }
 
+    // Borrar merchant
+    await merchants.deleteOne({ _id: merchant._id });
+
+    // Borrar llaves privadas asociadas
     await db.collection("privateKeys").deleteMany({
-      merchantId: new ObjectId(id),
+      merchantId: merchant._id,
     });
+
+    // Borrar claims del merchant
     await db.collection("claims").deleteMany({
-      merchantId: new ObjectId(id),
+      merchantId: merchant._id,
     });
+
+    // Limpiar cache
+    clearBalanceCache(merchant.wallet);
 
     res.json({ success: true });
   } catch (e) {
@@ -475,7 +594,7 @@ router.delete("/merchant/:id", checkAdmin, async (req, res) => {
 
 /**
  * GET /admin/keys
- * Devuelve las llaves privadas almacenadas para los merchants
+ * Lista llaves privadas de merchants automáticos
  */
 router.get("/keys", checkAdmin, async (_req, res) => {
   try {
@@ -492,6 +611,10 @@ router.get("/keys", checkAdmin, async (_req, res) => {
     res.status(500).json({ error: "Error al listar llaves" });
   }
 });
+
+/* ============================
+   CLAIM FUNCTIONS
+============================ */
 
 async function executeSolClaim(keypair, destinationPk) {
   const balanceLamports = await connection.getBalance(keypair.publicKey);
@@ -527,6 +650,7 @@ async function executeUsdcClaim(keypair, destinationPk) {
   }
 
   const mintPk = new PublicKey(mintAddress);
+
   const sourceAta = getAssociatedTokenAddress(mintPk, keypair.publicKey);
   const destinationAta = getAssociatedTokenAddress(mintPk, destinationPk);
 
@@ -537,11 +661,13 @@ async function executeUsdcClaim(keypair, destinationPk) {
 
   const tokenBalance = await connection.getTokenAccountBalance(sourceAta);
   const rawAmount = BigInt(tokenBalance.value?.amount || "0");
+
   if (rawAmount <= 0n) {
     return { token: "USDC", amount: 0 };
   }
 
   const instructions = [];
+
   const destinationInfo = await connection.getAccountInfo(destinationAta);
   if (!destinationInfo) {
     instructions.push(
@@ -581,5 +707,9 @@ async function executeUsdcClaim(keypair, destinationPk) {
     signature,
   };
 }
+
+/* ============================
+   EXPORT
+============================ */
 
 export default router;
