@@ -38,11 +38,12 @@ const historyContainer = document.getElementById("historyContainer");
 // Botones dentro de la tuerca
 const advCopy = document.getElementById("advCopy");
 const advHistory = document.getElementById("advHistory");
-const advDownload = document.getElementById("advDownload");
+const advCopyHistory = document.getElementById("advCopyHistory");
 const advLogout = document.getElementById("advLogout");
 
 let checkInterval = null;
 let currentReference = null;
+let lastHistoryData = null;
 
 // 🌐 URL del backend
 const API_URL =
@@ -269,7 +270,20 @@ btn.addEventListener("click", async () => {
 // === HISTORIAL DESDE MONGODB ===
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
+function renderHistoryLayout(innerHtml) {
+  historyContainer.innerHTML = `
+    <div class="history-card">
+      <div class="history-header">
+        <p class="history-title">Historial de cobros</p>
+        <button class="history-close" onclick="hideHistory()" aria-label="Cerrar historial">✕</button>
+      </div>
+      ${innerHtml}
+    </div>
+  `;
+}
+
 function renderHistoryTable(data) {
+  lastHistoryData = data;
   const transactions = data?.data || [];
   const totals = data?.totals || { SOL: 0, USDC: 0 };
   const totalCount = data?.total ?? transactions.length;
@@ -328,7 +342,6 @@ function renderHistoryTable(data) {
             <td>${tx.token}</td>
             <td>${tx.amount}</td>
             <td>${shortPayer}</td>
-            <td>${tx.fee}</td>
             <td>
               <span class="status-pill ${pillClass}">
                 ${pillLabel}
@@ -348,7 +361,6 @@ function renderHistoryTable(data) {
               <th>Token</th>
               <th>Monto</th>
               <th>Pagador</th>
-              <th>Fee</th>
               <th>Estado</th>
             </tr>
           </thead>
@@ -358,11 +370,10 @@ function renderHistoryTable(data) {
     `;
   }
 
-  historyContainer.innerHTML = `
+  renderHistoryLayout(`
     <div class="filters">${filterButtons}</div>
     ${tableSection}
-    <p class="history-hint">✅ Datos obtenidos desde MongoDB Cloud</p>
-  `;
+  `);
 }
 
 // 🔄 Función global para filtrar
@@ -373,8 +384,9 @@ window.filterTransactions = async (filter) => {
 
 // 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
-  historyContainer.innerHTML =
-    '<div class="info-block"><p class="status-text">🔄 Cargando desde MongoDB...</p></div>';
+  renderHistoryLayout(
+    '<div class="info-block"><p class="status-text">🔄 Cargando historial...</p></div>'
+  );
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
   const walletParam = merchantWallet
@@ -387,13 +399,46 @@ async function loadTransactions(filter = "all") {
   if (result.ok && result.data) {
     renderHistoryTable(result.data);
   } else {
-    historyContainer.innerHTML = `
+    lastHistoryData = null;
+    renderHistoryLayout(`
       <div class="info-block">
         <p class="status-text">❌ Error cargando transacciones</p>
         <p class="status-text">${result.error || "Error desconocido"}</p>
       </div>
-    `;
+    `);
   }
+}
+
+window.hideHistory = () => {
+  historyContainer.innerHTML = "";
+};
+
+function formatHistoryForClipboard(historyData) {
+  const transactions = historyData?.data || [];
+  const totals = historyData?.totals || {};
+  const normalizedTotals = {
+    USDC: Number(totals.USDC || 0),
+    SOL: Number(totals.SOL || 0),
+  };
+
+  const summaryParts = [];
+  if (normalizedTotals.USDC) summaryParts.push(`USDC ${normalizedTotals.USDC.toFixed(2)}`);
+  if (normalizedTotals.SOL) summaryParts.push(`SOL ${normalizedTotals.SOL.toFixed(5)}`);
+
+  const lines = transactions.map((tx, index) => {
+    const statusLabel = tx.status === "success" ? "OK" : tx.status || "pendiente";
+    let payer = tx.payer || "";
+    if (payer.length > 10) {
+      payer = `${payer.slice(0, 4)}...${payer.slice(-4)}`;
+    }
+    const payerSuffix = payer ? ` · ${payer}` : "";
+    return `${index + 1}. ${tx.date} ${tx.time} | ${tx.token} ${tx.amount} | ${statusLabel}${payerSuffix}`;
+  });
+
+  const summaryLine = summaryParts.length ? `Totales: ${summaryParts.join(" | ")}` : null;
+  const header = `Historial RayPay — ${merchantName}`;
+
+  return [header, summaryLine, ...lines].filter(Boolean).join("\n");
 }
 
 // === Acciones dentro de la tuerca ===
@@ -406,13 +451,32 @@ advHistory.addEventListener("click", () => {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
 
-// Descargar CSV
-advDownload.addEventListener("click", () => {
-  let url = `${API_URL}/transactions/download`;
-  if (merchantWallet) {
-    url += `?wallet=${encodeURIComponent(merchantWallet)}`;
+// Copiar historial
+advCopyHistory.addEventListener("click", async () => {
+  if (!lastHistoryData) {
+    await loadTransactions(currentFilter);
   }
-  window.open(url, "_blank");
+
+  const hasEntries = lastHistoryData?.data?.length;
+  if (!hasEntries) {
+    advCopyHistory.textContent = "Sin datos para copiar";
+    setTimeout(() => {
+      advCopyHistory.textContent = "Copiar historial";
+    }, 1500);
+    return;
+  }
+
+  try {
+    const formatted = formatHistoryForClipboard(lastHistoryData);
+    await navigator.clipboard.writeText(formatted);
+    advCopyHistory.textContent = "Historial copiado ✅";
+    setTimeout(() => {
+      advCopyHistory.textContent = "Copiar historial";
+    }, 1500);
+  } catch (error) {
+    console.error("No se pudo copiar el historial", error);
+    alert("No se pudo copiar el historial. Intenta nuevamente.");
+  }
 });
 
 // Copiar dirección desde la tuerca
