@@ -1,3 +1,4 @@
+<!-- frontend/admin.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -25,7 +26,10 @@
 
     <p class="subtitle">Gestiona todos los negocios desde un solo lugar.</p>
 
-    <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
+    <div class="actions-row">
+      <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
+      <button class="btn-secondary" onclick="refreshMerchants()">🔄 Actualizar tabla</button>
+    </div>
 
     <div id="merchantsTable"></div>
 
@@ -35,6 +39,19 @@
         Este apartado guarda las llaves privadas y públicas generadas automáticamente para cada merchant.
       </p>
       <div id="keysTable"></div>
+    </section>
+
+    <section class="destination-section">
+      <h2>🎯 Wallet destino para claims</h2>
+      <p class="subtitle">
+        Selecciona un merchant y actualiza la wallet donde se enviarán los fondos al presionar Claim.
+      </p>
+      <div class="destination-form">
+        <select id="destinationMerchantSelect"></select>
+        <input id="destinationWalletInput" placeholder="Wallet de destino del merchant" />
+        <button class="btn-primary" onclick="saveDestinationWallet()">Guardar destino</button>
+      </div>
+      <p id="destinationStatus" class="destination-status"></p>
     </section>
   </div>
 

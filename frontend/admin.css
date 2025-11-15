@@ -48,6 +48,14 @@ body {
   margin-top: -12px;
 }
 
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: center;
+  margin: 20px 0;
+}
+
 .btn-primary {
   padding: 10px 20px;
   background: #7c3aed;
@@ -55,12 +63,25 @@ body {
   color: white;
   border-radius: 8px;
   cursor: pointer;
-  margin: 20px 0;
   transition: 0.2s;
 }
 
 .btn-primary:hover {
   background: #9d4edd;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid #7c3aed;
+  color: #e0d4ff;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.btn-secondary:hover {
+  background: rgba(124, 58, 237, 0.2);
 }
 
 .table {
@@ -99,6 +120,22 @@ body {
   border-radius: 6px;
   cursor: pointer;
   margin-left: 5px;
+}
+
+.btn-claim {
+  background: #00c2a8;
+  border: none;
+  padding: 6px 14px;
+  color: #05161b;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-claim:disabled {
+  background: #1e4045;
+  color: #6b8b90;
+  cursor: not-allowed;
 }
 
 /* MODAL */
@@ -197,24 +234,83 @@ body {
   position: relative;
 }
 /* 🔥 Centrar botones de la tabla (versión completa) */
-#merchantsTable table td:nth-child(3),
-#merchantsTable table th:nth-child(3) {
+#merchantsTable table td:nth-child(4),
+#merchantsTable table th:nth-child(4) {
   text-align: center !important;
 }
 
-#merchantsTable td:nth-child(3) {
+.table-actions {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 10px;
 }
+.keys-section {
+  margin-top: 50px;
+  background: #170024;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 0 25px rgba(118, 0, 255, 0.25);
+}
 
+.keys-section .subtitle {
+  margin-top: 0;
+}
 
+#keysTable {
+  margin-top: 20px;
+}
 
-.btn-edit,
-.btn-delete {
-  margin: 0 4px;
-  display: inline-block;
+.balance-pill {
+  display: inline-flex;
+  flex-direction: column;
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.5);
+  padding: 6px 12px;
+  border-radius: 10px;
+  min-width: 140px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.balance-pill strong {
+  color: #fff;
+}
+
+.destination-section {
+  margin-top: 40px;
+  background: #12001e;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 0 25px rgba(50, 0, 80, 0.35);
+}
+
+.destination-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.destination-form select,
+.destination-form input {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #2a003f;
+  color: #fff;
+}
+
+.destination-form button {
+  align-self: center;
+}
+
+.destination-status {
+  color: #7af0d2;
+  min-height: 22px;
+  margin-top: 10px;
 }
 
 .keys-section {
