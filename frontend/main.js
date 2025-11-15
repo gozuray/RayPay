@@ -131,11 +131,9 @@ async function checkPaymentStatus(reference) {
   try {
     const data = await safeJsonFetch(`${API_URL}/confirm/${reference}`);
     if (data.status === "pagado") {
-      showPaymentStatus(
-        `✅ Pago confirmado ${
-          data.savedToDatabase ? "(guardado en BD)" : "(desde cache)"
-        } (${String(data.signature).slice(0, 8)}.)`
-      );
+      const signature = String(data.signature || "");
+      const shortSignature = signature ? `${signature.slice(0, 8)}...` : "N/A";
+      showPaymentStatus(`✅ Pago confirmado — Hash ${shortSignature}`);
       qrContainer.classList.add("confirmed");
       ding.play();
       clearInterval(checkInterval);
@@ -263,25 +261,19 @@ btn.addEventListener("click", async () => {
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
 function renderHistoryTable(data) {
-  if (!data || !data.data || data.data.length === 0) {
-    historyContainer.innerHTML = `
-      <div class="info-block">
-        <p class="status-text">
-          ⚠️ No hay transacciones ${
-            currentFilter !== "all" ? "de " + currentFilter : ""
-          }
-        </p>
-      </div>
-    `;
-    return;
-  }
+  const transactions = data?.data || [];
+  const totals = data?.totals || { SOL: 0, USDC: 0 };
+  const totalCount = data?.total ?? transactions.length;
 
-  const transactions = data.data;
-  const totals = data.totals || { SOL: 0, USDC: 0 };
+  const normalizedTotals = {
+    USDC: Number(totals.USDC || 0),
+    SOL: Number(totals.SOL || 0),
+  };
+
   const filters = [
-    { id: "all", label: `📊 Todos (${data.total})` },
-    { id: "USDC", label: `💵 USDC (${totals.USDC.toFixed(2)})` },
-    { id: "SOL", label: `⚡ SOL (${totals.SOL.toFixed(5)})` },
+    { id: "all", label: `📊 Todos (${totalCount})` },
+    { id: "USDC", label: `💵 USDC (${normalizedTotals.USDC.toFixed(2)})` },
+    { id: "SOL", label: `⚡ SOL (${normalizedTotals.SOL.toFixed(5)})` },
   ];
 
   const filterButtons = filters
@@ -296,52 +288,70 @@ function renderHistoryTable(data) {
     )
     .join("");
 
-  const rows = transactions
-    .map((tx) => {
-      const shortPayer =
-        tx.payer && tx.payer.length > 10
-          ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
-          : tx.payer || "N/A";
-      const pillClass = tx.status === "success" ? "success" : "pending";
-      const pillLabel = tx.status === "success" ? "Completo" : tx.status;
+  let tableSection = "";
 
-      return `
-        <tr>
-          <td>
-            ${tx.date}
-            <span class="table-meta">${tx.time}</span>
-          </td>
-          <td>${tx.token}</td>
-          <td>${tx.amount}</td>
-          <td>${shortPayer}</td>
-          <td>${tx.fee}</td>
-          <td>
-            <span class="status-pill ${pillClass}">
-              ${pillLabel}
-            </span>
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
+  if (!transactions.length) {
+    tableSection = `
+      <div class="info-block">
+        <p class="status-text">
+          ⚠️ No hay transacciones ${
+            currentFilter !== "all" ? "de " + currentFilter : ""
+          }
+        </p>
+      </div>
+    `;
+  } else {
+    const rows = transactions
+      .map((tx) => {
+        const shortPayer =
+          tx.payer && tx.payer.length > 10
+            ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
+            : tx.payer || "N/A";
+        const pillClass = tx.status === "success" ? "success" : "pending";
+        const pillLabel = tx.status === "success" ? "Completo" : tx.status;
+
+        return `
+          <tr>
+            <td>
+              ${tx.date}
+              <span class="table-meta">${tx.time}</span>
+            </td>
+            <td>${tx.token}</td>
+            <td>${tx.amount}</td>
+            <td>${shortPayer}</td>
+            <td>${tx.fee}</td>
+            <td>
+              <span class="status-pill ${pillClass}">
+                ${pillLabel}
+              </span>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    tableSection = `
+      <div class="table-wrapper">
+        <table class="transactions-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Token</th>
+              <th>Monto</th>
+              <th>Pagador</th>
+              <th>Fee</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
 
   historyContainer.innerHTML = `
     <div class="filters">${filterButtons}</div>
-    <div class="table-wrapper">
-      <table class="transactions-table">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Token</th>
-            <th>Monto</th>
-            <th>Pagador</th>
-            <th>Fee</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
+    ${tableSection}
     <p class="history-hint">✅ Datos obtenidos desde MongoDB Cloud</p>
   `;
 }
