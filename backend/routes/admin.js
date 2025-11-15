@@ -251,16 +251,81 @@ router.get("/merchants", checkAdmin, async (req, res) => {
       .project({ password: 0 })
       .toArray();
 
-    const enriched = await Promise.all(
-      merchants.map(async (merchant) => {
-        const balances = await getWalletBalances(merchant.wallet);
-        return {
-          ...merchant,
-          balances,
-          destinationWallet: merchant.destinationWallet || "",
-        };
-      })
-    );
+    const paymentSums = await db
+      .collection("payments")
+      .aggregate([
+        { $match: { status: "success" } },
+        {
+          $group: {
+            _id: { merchantWallet: "$merchantWallet", token: "$token" },
+            totalAmount: { $sum: "$amount" },
+          },
+        },
+      ])
+      .toArray();
+
+    const claimSums = await db
+      .collection("claims")
+      .aggregate([
+        {
+          $group: {
+            _id: { merchantId: "$merchantId", token: "$token" },
+            totalAmount: { $sum: "$amount" },
+          },
+        },
+      ])
+      .toArray();
+
+    const paymentMap = new Map();
+    paymentSums.forEach(({ _id, totalAmount }) => {
+      const wallet = _id?.merchantWallet;
+      const token = (_id?.token || "SOL").toUpperCase() === "USDC"
+        ? "USDC"
+        : "SOL";
+      if (!wallet) return;
+      if (!paymentMap.has(wallet)) {
+        paymentMap.set(wallet, { SOL: 0, USDC: 0 });
+      }
+      paymentMap.get(wallet)[token] = Number(totalAmount) || 0;
+    });
+
+    const claimMap = new Map();
+    claimSums.forEach(({ _id, totalAmount }) => {
+      const merchantId = _id?.merchantId;
+      const token = (_id?.token || "SOL").toUpperCase() === "USDC"
+        ? "USDC"
+        : "SOL";
+      if (!merchantId) return;
+      const key = merchantId.toString();
+      if (!claimMap.has(key)) {
+        claimMap.set(key, { SOL: 0, USDC: 0 });
+      }
+      claimMap.get(key)[token] = Number(totalAmount) || 0;
+    });
+
+    const enriched = merchants.map((merchant) => {
+      const walletStats = merchant.wallet
+        ? paymentMap.get(merchant.wallet)
+        : null;
+      const claimStats = claimMap.get(merchant._id.toString()) || {
+        SOL: 0,
+        USDC: 0,
+      };
+
+      const solIncome = walletStats?.SOL ?? 0;
+      const usdcIncome = walletStats?.USDC ?? 0;
+
+      const balances = {
+        sol: Math.max(solIncome - (claimStats.SOL ?? 0), 0),
+        usdc: Math.max(usdcIncome - (claimStats.USDC ?? 0), 0),
+      };
+
+      return {
+        ...merchant,
+        balances,
+        destinationWallet: merchant.destinationWallet || "",
+      };
+    });
 
     res.json({ merchants: enriched });
   } catch (e) {

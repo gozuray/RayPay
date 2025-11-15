@@ -25,6 +25,10 @@ const connection = new Connection(RPC_URL, {
   confirmTransactionInitialTimeout: 60000,
 });
 
+const MIN_SOL_TOLERANCE_LAMPORTS = 500; // 0.0000005 SOL
+const SOL_TOLERANCE_PERCENT = 0.001; // 0.1%
+const MIN_USDC_TOLERANCE = 0.000001;
+
 const toBN = (v) => new BigNumber(String(v));
 
 // Reutilizamos el objeto global
@@ -111,6 +115,18 @@ router.get("/confirm/:reference", async (req, res) => {
   if (!payment) return res.status(404).json({ error: "Referencia no encontrada" });
 
   try {
+    const normalizeKey = (key) => {
+      if (!key) return "";
+      if (typeof key === "string") return key;
+      if (typeof key?.toBase58 === "function") return key.toBase58();
+      if (key.pubkey) {
+        if (typeof key.pubkey === "string") return key.pubkey;
+        if (typeof key.pubkey?.toBase58 === "function")
+          return key.pubkey.toBase58();
+      }
+      return String(key);
+    };
+
     const existing = await payments.findOne({ reference });
     if (existing) {
       return res.json({
@@ -135,21 +151,47 @@ router.get("/confirm/:reference", async (req, res) => {
     });
     if (!tx?.meta) return res.json({ status: "pendiente" });
 
+    if (tx.meta?.err) {
+      console.warn("Transacción con error:", tx.meta.err);
+      delete global.pendingPayments[reference];
+      return res.json({
+        status: "fallido",
+        reason: "Fondos insuficientes o transacción rechazada",
+        signature: sigInfo.signature,
+      });
+    }
+
     // 👇 Usamos la wallet del pago, o la global como fallback
     const merchant = (payment.merchantWallet || MERCHANT_WALLET || "").trim();
     const expectedAmount = parseFloat(payment.amount);
     let received = 0;
 
     if (payment.token === "SOL") {
-      const pre = tx.meta.preBalances;
-      const post = tx.meta.postBalances;
-      const keys = tx.transaction.message.accountKeys.map((k) =>
-        k.pubkey.toBase58()
-      );
+      const pre = tx.meta.preBalances || [];
+      const post = tx.meta.postBalances || [];
+      const keys = (tx.transaction.message.accountKeys || []).map(normalizeKey);
       const index = keys.indexOf(merchant);
-      if (index >= 0) {
-        received = (post[index] - pre[index]) / 1e9;
+      if (index === -1) {
+        console.warn("No se encontró la wallet del merchant en la transacción", {
+          merchant,
+          reference,
+        });
+        return res.json({ status: "pendiente" });
       }
+      const lamportsReceived = (post[index] || 0) - (pre[index] || 0);
+      if (lamportsReceived <= 0) {
+        console.warn("La transacción no acreditó SOL al merchant", reference);
+        return res.json({ status: "pendiente" });
+      }
+      const expectedLamports = Math.round(expectedAmount * 1e9);
+      const toleranceLamports = Math.max(
+        MIN_SOL_TOLERANCE_LAMPORTS,
+        Math.round(expectedLamports * SOL_TOLERANCE_PERCENT)
+      );
+      if (lamportsReceived + toleranceLamports < expectedLamports) {
+        return res.json({ status: "pendiente" });
+      }
+      received = lamportsReceived / 1e9;
     } else {
       const usdcMint = USDC_MINTS[CLUSTER];
       const postToken = tx.meta.postTokenBalances?.find(
@@ -158,15 +200,28 @@ router.get("/confirm/:reference", async (req, res) => {
       const preToken = tx.meta.preTokenBalances?.find(
         (b) => b.owner === merchant && b.mint === usdcMint
       );
+      if (!postToken || !preToken) {
+        console.warn("No se encontraron balances USDC para el merchant", {
+          merchant,
+          reference,
+        });
+        return res.json({ status: "pendiente" });
+      }
       const postAmount = postToken?.uiTokenAmount?.uiAmount ?? 0;
       const preAmount = preToken?.uiTokenAmount?.uiAmount ?? 0;
       received = postAmount - preAmount;
+      if (received <= 0) return res.json({ status: "pendiente" });
+      const toleranceUsdc = Math.max(
+        MIN_USDC_TOLERANCE,
+        expectedAmount * 0.001
+      );
+      if (received + toleranceUsdc < expectedAmount) {
+        return res.json({ status: "pendiente" });
+      }
     }
 
-    if (received >= expectedAmount - 0.00001) {
-      const keys = tx.transaction.message.accountKeys.map((k) =>
-        k.pubkey.toBase58()
-      );
+    if (received > 0) {
+      const keys = (tx.transaction.message.accountKeys || []).map(normalizeKey);
       const payer = keys[0] || "desconocido";
       const blockTime = tx.blockTime ? tx.blockTime * 1000 : Date.now();
 
