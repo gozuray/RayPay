@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>RayPay Admin Dashboard</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+
+<body>
+  <div class="sidebar">
+    <h2>⚙️ Admin</h2>
+    <ul>
+      <li class="active">Merchants</li>
+      <li onclick="logout()">Cerrar sesión</li>
+    </ul>
+  </div>
+
+  <div class="main">
+    <h1>RayPay — Panel de Administración</h1>
+    <p class="subtitle">Gestiona todos los negocios desde un solo lugar.</p>
+
+    <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
+
+    <div id="merchantsTable"></div>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <h2 id="modalTitle"></h2>
+
+      <label>Usuario:</label>
+      <input id="formUsername" />
+
+      <label>Wallet:</label>
+      <input id="formWallet" />
+
+      <label>Contraseña (opcional):</label>
+      <input id="formPassword" type="password" />
+
+      <div class="modal-actions">
+        <button id="saveBtn" class="btn-primary">Guardar</button>
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

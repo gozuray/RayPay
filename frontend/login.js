@@ -35,15 +35,22 @@ btn.addEventListener("click", async () => {
       return;
     }
 
+    // Guardar token y datos
     localStorage.setItem("raypay_token", data.token);
     localStorage.setItem("raypay_user", JSON.stringify(data.user));
 
-    window.location.href = "index.html";
+    // 🔥 Detectar si es ADMIN
+    if (data.user.role === "admin") {
+      window.location.href = "admin.html";  // panel administrador
+    } else {
+      window.location.href = "index.html";  // POS normal
+    }
+
   } catch (err) {
     errorMsg.innerText = "No se pudo conectar al servidor";
     errorMsg.style.display = "block";
   } finally {
     btn.disabled = false;
-    btn.innerText = "Ingresar";
+    btn.innerText = "Ingresando";
   }
 });

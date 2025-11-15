@@ -1,0 +1,144 @@
+body {
+  margin: 0;
+  font-family: "Poppins", sans-serif;
+  background: #0d0018;
+  color: white;
+  display: flex;
+}
+
+.sidebar {
+  width: 220px;
+  background: #140024;
+  height: 100vh;
+  padding: 20px;
+  box-shadow: 0 0 20px rgba(129, 0, 255, 0.3);
+}
+
+.sidebar h2 {
+  margin-bottom: 30px;
+  color: #d9b3ff;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  padding: 14px 10px;
+  margin-bottom: 8px;
+  background: #2a004a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.sidebar li:hover,
+.sidebar .active {
+  background: #4c007d;
+}
+
+.main {
+  flex: 1;
+  padding: 30px;
+}
+
+.subtitle {
+  color: #b689ff;
+  margin-top: -12px;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  background: #7c3aed;
+  border: none;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 20px 0;
+  transition: 0.2s;
+}
+
+.btn-primary:hover {
+  background: #9d4edd;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background: #1a012c;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.table th,
+.table td {
+  padding: 14px;
+  border-bottom: 1px solid #320051;
+}
+
+.table tr:hover {
+  background: #310047;
+}
+
+.btn-edit {
+  background: #4c00ff;
+  border: none;
+  padding: 6px 14px;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-delete {
+  background: #ff3b3b;
+  border: none;
+  padding: 6px 14px;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: 5px;
+}
+
+/* MODAL */
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-content {
+  background: #240036;
+  padding: 25px;
+  width: 400px;
+  border-radius: 12px;
+  box-shadow: 0 0 25px rgba(162, 108, 255, 0.4);
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 14px;
+  border-radius: 6px;
+  border: none;
+  background: #3a0057;
+  color: white;
+}
+
+.modal-actions {
+  text-align: right;
+}
+
+.btn-cancel {
+  padding: 8px 16px;
+  background: #b02f2f;
+  border: none;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+}
