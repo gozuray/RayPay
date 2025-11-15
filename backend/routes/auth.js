@@ -1,4 +1,3 @@
-// backend/routes/auth.js
 import express from "express";
 import bcrypt from "bcryptjs";
 import { getDB } from "../db.js";
@@ -7,7 +6,7 @@ import { ObjectId } from "mongodb";
 
 const router = express.Router();
 
-// ⬇ LOGIN
+// LOGIN SOLO POR USERNAME
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body || {};
@@ -17,13 +16,21 @@ router.post("/login", async (req, res) => {
     }
 
     const db = getDB();
+
+    // SOLO username
     const user = await db.collection("merchants").findOne({ username });
 
-    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
 
+    // Validar contraseña
     const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ error: "Contraseña incorrecta" });
+    if (!ok) {
+      return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
 
+    // Token con rol
     const token = signToken({
       id: user._id.toString(),
       username: user.username,
@@ -39,9 +46,10 @@ router.post("/login", async (req, res) => {
         role: user.role || "merchant",
       },
     });
-  } catch (e) {
-    console.error("login:", e);
-    res.status(500).json({ error: "Error iniciando sesión" });
+
+  } catch (err) {
+    console.error("login error:", err);
+    res.status(500).json({ error: "Error en el servidor" });
   }
 });
 

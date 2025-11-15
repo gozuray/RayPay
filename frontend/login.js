@@ -1,24 +1,15 @@
 const API_BASE = "https://raypay-backend.onrender.com";
 
-document.body.style.display = "block";
-
-const btn = document.getElementById("btnLogin");
-const usernameInput = document.getElementById("username");
-const passwordInput = document.getElementById("password");
-const errorMsg = document.getElementById("errorMsg");
-
-btn.addEventListener("click", async () => {
-  const username = usernameInput.value.trim();
-  const password = passwordInput.value.trim();
+document.getElementById("btnLogin").addEventListener("click", async () => {
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value.trim();
+  const errorMsg = document.getElementById("errorMsg");
 
   if (!username || !password) {
     errorMsg.innerText = "Completa usuario y contraseña";
     errorMsg.style.display = "block";
     return;
   }
-
-  btn.disabled = true;
-  btn.innerText = "Ingresando...";
 
   try {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -30,27 +21,25 @@ btn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok) {
-      errorMsg.innerText = data.error || "Error";
+      errorMsg.innerText = data.error || "Error de login";
       errorMsg.style.display = "block";
       return;
     }
 
-    // Guardar token y datos
-    localStorage.setItem("raypay_token", data.token);
+    // Guardar usuario y token
     localStorage.setItem("raypay_user", JSON.stringify(data.user));
+    localStorage.setItem("raypay_token", data.token);
 
-    // 🔥 Detectar si es ADMIN
+    // ADMIN → Panel
     if (data.user.role === "admin") {
-      window.location.href = "admin.html";  // panel administrador
+      window.location.href = "admin.html";
     } else {
-      window.location.href = "index.html";  // POS normal
+      // Merchant normal → POS
+      window.location.href = "index.html";
     }
 
-  } catch (err) {
+  } catch (e) {
     errorMsg.innerText = "No se pudo conectar al servidor";
     errorMsg.style.display = "block";
-  } finally {
-    btn.disabled = false;
-    btn.innerText = "Ingresando";
   }
 });
