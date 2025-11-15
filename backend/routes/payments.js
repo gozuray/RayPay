@@ -1,20 +1,18 @@
-// backend/routes/payments.js
 import express from "express";
 import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
 
-
 const router = express.Router();
 
-// ⚙️ Config Solana
+// ⚙️ Configuración básica
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const MERCHANT_WALLET = (process.env.MERCHANT_WALLET || "").trim();
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
 
 if (!MERCHANT_WALLET) {
-  console.error("⚠️ Falta MERCHANT_WALLET en .env (se usará sólo como fallback)");
+  console.error("⚠️ Falta MERCHANT_WALLET en .env (se usará sólo si no llega una wallet desde el frontend)");
 }
 
 const USDC_MINTS = {
@@ -28,19 +26,16 @@ const connection = new Connection(RPC_URL, {
 });
 
 const toBN = (v) => new BigNumber(String(v));
-global.pendingPayments = {};
+
+// Reutilizamos el objeto global
+if (!global.pendingPayments) global.pendingPayments = {};
 
 // Home
 router.get("/", (_req, res) => {
   res.send("RayPay Payments OK");
 });
 
-// Health
-router.get("/__health", (_req, res) => {
-  res.json({ ok: true, cluster: CLUSTER, now: new Date().toISOString() });
-});
-
-// 🟣 Crear pago (QR)
+// 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {
   try {
     let { amount, restaurant, token, merchantWallet } = req.body || {};
@@ -49,15 +44,14 @@ router.post("/create-payment", (req, res) => {
       return res.status(400).json({ error: "Monto inválido" });
     }
 
-    // Token elegido
     const chosenToken = token === "SOL" ? "SOL" : "USDC";
     amount = parseFloat(amount).toFixed(chosenToken === "SOL" ? 5 : 3);
 
-    // Wallet del comercio:
-    // 1) la que viene del body (usuario logueado)
-    // 2) si no viene -> MERCHANT_WALLET del .env
-    const recipientStr = (merchantWallet || MERCHANT_WALLET || "").trim();
-    if (!recipientStr) {
+    // 1️⃣ Determinar qué wallet usar
+    const bodyWallet = (merchantWallet || "").trim();
+    const walletStr = bodyWallet || MERCHANT_WALLET;
+
+    if (!walletStr) {
       return res
         .status(500)
         .json({ error: "No hay wallet de comercio configurada" });
@@ -65,8 +59,9 @@ router.post("/create-payment", (req, res) => {
 
     let recipientPk;
     try {
-      recipientPk = new PublicKey(recipientStr);
-    } catch {
+      recipientPk = new PublicKey(walletStr);
+    } catch (e) {
+      console.error("Wallet inválida recibida:", walletStr);
       return res.status(400).json({ error: "Wallet del comercio inválida" });
     }
 
@@ -77,7 +72,8 @@ router.post("/create-payment", (req, res) => {
     const url = encodeURL({
       recipient: recipientPk,
       amount: amountBN,
-      splToken: chosenToken === "USDC" ? new PublicKey(usdcMint) : undefined,
+      splToken:
+        chosenToken === "USDC" ? new PublicKey(usdcMint) : undefined,
       label: restaurant || "Restaurante",
       message: `Pago en ${chosenToken}`,
       reference,
@@ -89,7 +85,7 @@ router.post("/create-payment", (req, res) => {
       token: chosenToken,
       created: new Date().toISOString(),
       restaurant: restaurant || "Restaurante",
-      merchantWallet: recipientStr, // 👈 guardamos la wallet específica
+      merchantWallet: walletStr, // 👉 guardamos la wallet usada en este pago
     };
 
     res.json({
@@ -128,7 +124,10 @@ router.get("/confirm/:reference", async (req, res) => {
     const sigInfo = await findReference(connection, referenceKey, {
       finality: "confirmed",
     });
-    if (!sigInfo?.signature) return res.json({ status: "pendiente" });
+
+    if (!sigInfo?.signature) {
+      return res.json({ status: "pendiente" });
+    }
 
     const tx = await connection.getParsedTransaction(sigInfo.signature, {
       commitment: "confirmed",
@@ -136,7 +135,7 @@ router.get("/confirm/:reference", async (req, res) => {
     });
     if (!tx?.meta) return res.json({ status: "pendiente" });
 
-    // 👇 usamos la wallet específica de ese pago
+    // 👇 Usamos la wallet del pago, o la global como fallback
     const merchant = (payment.merchantWallet || MERCHANT_WALLET || "").trim();
     const expectedAmount = parseFloat(payment.amount);
     let received = 0;
@@ -148,7 +147,9 @@ router.get("/confirm/:reference", async (req, res) => {
         k.pubkey.toBase58()
       );
       const index = keys.indexOf(merchant);
-      if (index >= 0) received = (post[index] - pre[index]) / 1e9;
+      if (index >= 0) {
+        received = (post[index] - pre[index]) / 1e9;
+      }
     } else {
       const usdcMint = USDC_MINTS[CLUSTER];
       const postToken = tx.meta.postTokenBalances?.find(
@@ -203,18 +204,19 @@ router.get("/confirm/:reference", async (req, res) => {
         amount: received,
         savedToDatabase: true,
       });
-    } else {
+    }
+
+    return res.json({ status: "pendiente" });
+  } catch (err) {
+    if (err.message?.includes("not found")) {
       return res.json({ status: "pendiente" });
     }
-  } catch (err) {
-    if (err.message?.includes("not found"))
-      return res.json({ status: "pendiente" });
-    console.error("confirm:", err);
+    console.error("Error en /confirm:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 📜 Historial desde Mongo
+// 📜 Historial desde MongoDB (filtrado por merchant)
 router.get("/transactions", async (req, res) => {
   try {
     const db = getDB();
@@ -224,7 +226,6 @@ router.get("/transactions", async (req, res) => {
     const filterToken = req.query.token?.toUpperCase();
     const skip = parseInt(req.query.skip || "0", 10);
 
-    // 👇 Merchant según query o .env
     const merchantWallet = (req.query.wallet || MERCHANT_WALLET || "").trim();
     if (!merchantWallet) {
       return res
@@ -288,7 +289,7 @@ router.get("/transactions", async (req, res) => {
   }
 });
 
-// 📥 CSV
+// 📥 CSV de transacciones
 router.get("/transactions/download", async (req, res) => {
   try {
     const db = getDB();
@@ -310,8 +311,9 @@ router.get("/transactions/download", async (req, res) => {
       .sort({ blockTime: -1 })
       .limit(500)
       .toArray();
-    if (txs.length === 0)
+    if (txs.length === 0) {
       return res.status(404).send("No hay transacciones para descargar");
+    }
 
     const csv =
       "Signature,Token,Monto,Pagador,Fee,Slot,Fecha,Hora,Estado,Restaurante\n" +

@@ -12,8 +12,8 @@
 })();
 
 // === Usuario logueado ===
-const currentUser = JSON.parse(localStorage.getItem("raypay_user") || "{}");
-const merchantWallet = currentUser.wallet || null;
+const currentUser = JSON.parse(localStorage.getItem("raypay_user"));
+const merchantWallet = currentUser.wallet;
 const merchantName = currentUser.name || "Restaurante";
 
 // === Elementos principales ===

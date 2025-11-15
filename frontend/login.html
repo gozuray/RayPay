@@ -11,35 +11,24 @@
     />
 
     <style>
-      /* === RESET === */
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
       }
 
-      /* === FONDO Y CENTRADO TOTAL === */
       body {
         font-family: "Poppins", sans-serif;
         background: radial-gradient(circle at 50% 20%, #240046, #0a0018 70%);
-        min-height: 100vh;         /* FULL SCREEN VERTICAL */
-        width: 100%;
-        display: flex;
-        justify-content: center;   /* Centrado horizontal */
-        align-items: center;       /* Centrado vertical REAL */
-        color: #fff;
-      }
-
-      /* === CONTENEDOR ABSOLUTAMENTE CENTRADO === */
-      .login-wrapper {
-        width: 100%;
-        max-width: 100%;
         display: flex;
         justify-content: center;
         align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        color: #fff;
       }
 
-      /* === TARJETA === */
       .login-card {
         width: 100%;
         max-width: 420px;
@@ -52,7 +41,7 @@
         text-align: center;
       }
 
-      .login-card h2 {
+      h2 {
         font-size: 1.9rem;
         margin-bottom: 25px;
         color: #d9b3ff;
@@ -62,8 +51,7 @@
         gap: 10px;
       }
 
-      /* === INPUTS === */
-      .login-card input {
+      input {
         width: 100%;
         padding: 14px;
         margin-bottom: 18px;
@@ -74,14 +62,14 @@
         color: #fff;
         outline: none;
         transition: 0.25s;
+        text-align: left;
       }
 
-      .login-card input:focus {
+      input:focus {
         border-color: #c084fc;
         box-shadow: 0 0 12px rgba(192, 132, 252, 0.4);
       }
 
-      /* === BOTÓN === */
       #btnLogin {
         width: 100%;
         padding: 15px;
@@ -102,7 +90,6 @@
         box-shadow: 0 6px 24px rgba(124, 58, 237, 0.6);
       }
 
-      /* === ERROR === */
       #errorMsg {
         color: #ff8686;
         margin-top: 12px;
@@ -110,7 +97,6 @@
         font-size: 0.9rem;
       }
 
-      /* === FOOTER FIJO === */
       footer {
         position: fixed;
         bottom: 15px;
@@ -123,29 +109,26 @@
   </head>
 
   <body>
+    <div class="login-card">
+      <h2>🔐 Iniciar Sesión</h2>
 
-    <div class="login-wrapper">
-      <div class="login-card">
-        <h2>🔐 Iniciar Sesión</h2>
+      <input
+        id="username"
+        type="text"
+        placeholder="Nombre de usuario"
+        autocomplete="username"
+      />
 
-        <input
-          id="email"
-          type="email"
-          placeholder="Correo electrónico"
-          autocomplete="email"
-        />
+      <input
+        id="password"
+        type="password"
+        placeholder="Contraseña"
+        autocomplete="current-password"
+      />
 
-        <input
-          id="password"
-          type="password"
-          placeholder="Contraseña"
-          autocomplete="current-password"
-        />
+      <button id="btnLogin">Ingresar</button>
 
-        <button id="btnLogin">Ingresar</button>
-
-        <p id="errorMsg"></p>
-      </div>
+      <p id="errorMsg"></p>
     </div>
 
     <footer>
