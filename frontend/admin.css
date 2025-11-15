@@ -130,6 +130,36 @@ body {
   color: white;
 }
 
+.modal-content select {
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border-radius: 6px;
+  border: none;
+  background: #3a0057;
+  color: white;
+}
+
+.wallet-section {
+  margin-top: 10px;
+  margin-bottom: 14px;
+}
+
+.wallet-manual-input {
+  margin-top: 10px;
+  display: none;
+}
+
+.wallet-manual-input.visible {
+  display: block;
+}
+
+.wallet-manual-input small {
+  display: block;
+  margin-top: 6px;
+  color: #c8a2ff;
+}
+
 .modal-actions {
   text-align: right;
 }
@@ -185,4 +215,20 @@ body {
 .btn-delete {
   margin: 0 4px;
   display: inline-block;
+}
+
+.keys-section {
+  margin-top: 50px;
+  background: #170024;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 0 25px rgba(118, 0, 255, 0.25);
+}
+
+.keys-section .subtitle {
+  margin-top: 0;
+}
+
+#keysTable {
+  margin-top: 20px;
 }

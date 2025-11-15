@@ -28,6 +28,14 @@
     <button class="btn-primary" onclick="openCreateModal()">➕ Crear nuevo merchant</button>
 
     <div id="merchantsTable"></div>
+
+    <section class="keys-section">
+      <h2>🔐 Private Keys</h2>
+      <p class="subtitle">
+        Este apartado guarda las llaves privadas y públicas generadas automáticamente para cada merchant.
+      </p>
+      <div id="keysTable"></div>
+    </section>
   </div>
 
   <!-- MODAL -->
@@ -38,11 +46,20 @@
       <label>Usuario:</label>
       <input id="formUsername" />
 
-      <label>Wallet:</label>
-      <input id="formWallet" />
-
-      <label>Contraseña (opcional):</label>
+      <label>Contraseña (obligatoria al crear / opcional al editar):</label>
       <input id="formPassword" type="password" />
+
+      <div class="wallet-section">
+        <label>Wallet:</label>
+        <select id="formWalletMode">
+          <option value="auto">Automático (crear nueva en Solana)</option>
+          <option value="manual">Manual (ingresar wallet existente)</option>
+        </select>
+        <div id="manualWalletWrapper" class="wallet-manual-input">
+          <input id="formWallet" placeholder="Ingresa la wallet del merchant" />
+          <small>Este campo solo se usa cuando eliges modo manual.</small>
+        </div>
+      </div>
 
       <div class="modal-actions">
         <button id="saveBtn" class="btn-primary">Guardar</button>

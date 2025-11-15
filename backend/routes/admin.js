@@ -2,6 +2,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
+import { Keypair } from "@solana/web3.js";
 import { getDB } from "../db.js";
 import { verifyToken } from "../utils/auth.js";
 
@@ -49,14 +50,20 @@ router.get("/merchants", checkAdmin, async (req, res) => {
 
 /**
  * POST /admin/create
- * body: { username, wallet, password }
+ * body: { username, wallet?, walletMode?, password }
  */
 router.post("/create", checkAdmin, async (req, res) => {
   try {
-    const { username, wallet, password } = req.body || {};
+    const { username, wallet, password, walletMode } = req.body || {};
 
-    if (!username || !wallet || !password) {
-      return res.status(400).json({ error: "Faltan campos" });
+    if (!username || !password) {
+      return res.status(400).json({ error: "Usuario y contraseña son obligatorios" });
+    }
+
+    const normalizedWalletMode = walletMode === "auto" ? "auto" : "manual";
+
+    if (normalizedWalletMode === "manual" && !wallet) {
+      return res.status(400).json({ error: "Debes indicar una wallet para el modo manual" });
     }
 
     const db = getDB();
@@ -69,14 +76,47 @@ router.post("/create", checkAdmin, async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    await merchants.insertOne({
+    let walletAddress = wallet?.trim();
+    let privateKeyBase64 = null;
+
+    if (normalizedWalletMode === "auto") {
+      const keypair = Keypair.generate();
+      walletAddress = keypair.publicKey.toBase58();
+      privateKeyBase64 = Buffer.from(keypair.secretKey).toString("base64");
+    }
+
+    const insertResult = await merchants.insertOne({
       username,
-      wallet,
+      wallet: walletAddress,
       password: hashed,
       role: "merchant",
     });
 
-    res.json({ success: true });
+    if (privateKeyBase64) {
+      await db.collection("privateKeys").insertOne({
+        merchantId: insertResult.insertedId,
+        merchantUsername: username,
+        walletAddress,
+        privateKey: privateKeyBase64,
+        createdAt: new Date(),
+        mode: normalizedWalletMode,
+      });
+    }
+
+    res.json({
+      success: true,
+      merchant: {
+        id: insertResult.insertedId.toString(),
+        username,
+        wallet: walletAddress,
+      },
+      wallet: privateKeyBase64
+        ? {
+            address: walletAddress,
+            privateKey: privateKeyBase64,
+          }
+        : null,
+    });
   } catch (e) {
     console.error("admin /create:", e);
     res.status(500).json({ error: "Error al crear merchant" });
@@ -98,13 +138,21 @@ router.put("/merchant/:id", checkAdmin, async (req, res) => {
     if (password) update.password = await bcrypt.hash(password, 10);
 
     const db = getDB();
-    const result = await db.collection("merchants").updateOne(
+    const merchants = db.collection("merchants");
+    const result = await merchants.updateOne(
       { _id: new ObjectId(id) },
       { $set: update }
     );
 
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: "Merchant no encontrado" });
+    }
+
+    if (wallet) {
+      await db.collection("privateKeys").updateMany(
+        { merchantId: new ObjectId(id) },
+        { $set: { walletAddress: wallet } }
+      );
     }
 
     res.json({ success: true });
@@ -130,10 +178,32 @@ router.delete("/merchant/:id", checkAdmin, async (req, res) => {
       return res.status(404).json({ error: "Merchant no encontrado" });
     }
 
+    await db.collection("privateKeys").deleteMany({ merchantId: new ObjectId(id) });
+
     res.json({ success: true });
   } catch (e) {
     console.error("admin DELETE /merchant:", e);
     res.status(500).json({ error: "Error al borrar merchant" });
+  }
+});
+
+/**
+ * GET /admin/keys
+ * Devuelve las llaves privadas almacenadas para los merchants
+ */
+router.get("/keys", checkAdmin, async (_req, res) => {
+  try {
+    const db = getDB();
+    const keys = await db
+      .collection("privateKeys")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json({ keys });
+  } catch (e) {
+    console.error("admin /keys:", e);
+    res.status(500).json({ error: "Error al listar llaves" });
   }
 });
 
