@@ -56,6 +56,7 @@ toggleAdvanced.addEventListener("click", (e) => {
     advanced.classList.add("visible");
     toggleAdvanced.classList.add("rotating");
   }
+  advanced.setAttribute("aria-hidden", String(!advanced.classList.contains("visible")));
 });
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
@@ -98,9 +99,7 @@ function showPaymentStatus(msg) {
   if (!statusEl) {
     statusEl = document.createElement("p");
     statusEl.id = "status";
-    statusEl.style.marginTop = "16px";
-    statusEl.style.textAlign = "center";
-    statusEl.style.color = "#e5e7eb";
+    statusEl.className = "status-text";
     document.getElementById("statusContainer").appendChild(statusEl);
   }
   statusEl.textContent = msg;
@@ -266,128 +265,85 @@ let currentFilter = "all"; // "all", "SOL", "USDC"
 function renderHistoryTable(data) {
   if (!data || !data.data || data.data.length === 0) {
     historyContainer.innerHTML = `
-      <p style='color: #fbbf24; padding: 20px;'>
-        ⚠️ No hay transacciones ${currentFilter !== "all" ? "de " + currentFilter : ""}
-      </p>
+      <div class="info-block">
+        <p class="status-text">
+          ⚠️ No hay transacciones ${
+            currentFilter !== "all" ? "de " + currentFilter : ""
+          }
+        </p>
+      </div>
     `;
     return;
   }
 
   const transactions = data.data;
   const totals = data.totals || { SOL: 0, USDC: 0 };
+  const filters = [
+    { id: "all", label: `📊 Todos (${data.total})` },
+    { id: "USDC", label: `💵 USDC (${totals.USDC.toFixed(2)})` },
+    { id: "SOL", label: `⚡ SOL (${totals.SOL.toFixed(5)})` },
+  ];
 
-  let html = `
-    <!-- Filtros -->
-    <div style="
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin-bottom: 15px;
-      flex-wrap: wrap;
-    ">
-      <button onclick="filterTransactions('all')" style="
-        padding: 8px 16px;
-        border-radius: 8px;
-        border: 2px solid ${currentFilter === "all" ? "#c084fc" : "#3b0764"};
-        background: ${currentFilter === "all" ? "#6d28d9" : "transparent"};
-        color: #fff;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: all 0.3s;
-      ">
-        📊 Todos (${data.total})
-      </button>
-      <button onclick="filterTransactions('USDC')" style="
-        padding: 8px 16px;
-        border-radius: 8px;
-        border: 2px solid ${currentFilter === "USDC" ? "#c084fc" : "#3b0764"};
-        background: ${currentFilter === "USDC" ? "#6d28d9" : "transparent"};
-        color: #fff;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: all 0.3s;
-      ">
-        💵 USDC (${totals.USDC.toFixed(2)})
-      </button>
-      <button onclick="filterTransactions('SOL')" style="
-        padding: 8px 16px;
-        border-radius: 8px;
-        border: 2px solid ${currentFilter === "SOL" ? "#c084fc" : "#3b0764"};
-        background: ${currentFilter === "SOL" ? "#6d28d9" : "transparent"};
-        color: #fff;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: all 0.3s;
-      ">
-        ⚡ SOL (${totals.SOL.toFixed(5)})
-      </button>
-    </div>
+  const filterButtons = filters
+    .map(
+      (filter) => `
+        <button class="filter-button ${
+          currentFilter === filter.id ? "is-active" : ""
+        }" onclick="filterTransactions('${filter.id}')">
+          ${filter.label}
+        </button>
+      `
+    )
+    .join("");
 
-    <div style="overflow-x:auto;">
-      <table style="
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
-        color: #e5e7eb;
-        background: rgba(15, 6, 38, 0.9);
-        border-radius: 12px;
-        overflow: hidden;
-      ">
+  const rows = transactions
+    .map((tx) => {
+      const shortPayer =
+        tx.payer && tx.payer.length > 10
+          ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
+          : tx.payer || "N/A";
+      const pillClass = tx.status === "success" ? "success" : "pending";
+      const pillLabel = tx.status === "success" ? "Completo" : tx.status;
+
+      return `
+        <tr>
+          <td>
+            ${tx.date}
+            <span class="table-meta">${tx.time}</span>
+          </td>
+          <td>${tx.token}</td>
+          <td>${tx.amount}</td>
+          <td>${shortPayer}</td>
+          <td>${tx.fee}</td>
+          <td>
+            <span class="status-pill ${pillClass}">
+              ${pillLabel}
+            </span>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  historyContainer.innerHTML = `
+    <div class="filters">${filterButtons}</div>
+    <div class="table-wrapper">
+      <table class="transactions-table">
         <thead>
-          <tr style="background: rgba(88, 28, 135, 0.95);">
-            <th style="padding: 10px;">Fecha</th>
-            <th style="padding: 10px;">Token</th>
-            <th style="padding: 10px;">Monto</th>
-            <th style="padding: 10px;">Pagador</th>
-            <th style="padding: 10px;">Fee</th>
-            <th style="padding: 10px;">Estado</th>
+          <tr>
+            <th>Fecha</th>
+            <th>Token</th>
+            <th>Monto</th>
+            <th>Pagador</th>
+            <th>Fee</th>
+            <th>Estado</th>
           </tr>
         </thead>
-        <tbody>
-  `;
-
-  transactions.forEach((tx) => {
-    const shortPayer =
-      tx.payer && tx.payer.length > 10
-        ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
-        : tx.payer || "N/A";
-    html += `
-      <tr style="border-top: 1px solid rgba(55, 65, 81, 0.6);">
-        <td style="padding: 8px 10px;">
-          <div>${tx.date}</div>
-          <div style="font-size: 0.8rem; color:#9ca3af;">${tx.time}</div>
-        </td>
-        <td style="padding: 8px 10px;">${tx.token}</td>
-        <td style="padding: 8px 10px;">${tx.amount}</td>
-        <td style="padding: 8px 10px;">${shortPayer}</td>
-        <td style="padding: 8px 10px;">${tx.fee}</td>
-        <td style="padding: 8px 10px;">
-          <span style="
-            padding: 4px 8px;
-            border-radius: 999px;
-            background: ${
-              tx.status === "success" ? "#16a34a33" : "#facc1533"
-            };
-            color: ${tx.status === "success" ? "#bbf7d0" : "#fed7aa"};
-            font-size: 0.8rem;
-          ">
-            ${tx.status === "success" ? "Completo" : tx.status}
-          </span>
-        </td>
-      </tr>
-    `;
-  });
-
-  html += `
-        </tbody>
+        <tbody>${rows}</tbody>
       </table>
     </div>
-    <div style="margin-top: 15px; text-align: center; color: #9ca3af; font-size: 0.85rem;">
-      ✅ Datos obtenidos desde MongoDB Cloud
-    </div>
+    <p class="history-hint">✅ Datos obtenidos desde MongoDB Cloud</p>
   `;
-
-  historyContainer.innerHTML = html;
 }
 
 // 🔄 Función global para filtrar
@@ -399,7 +355,7 @@ window.filterTransactions = async (filter) => {
 // 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
   historyContainer.innerHTML =
-    "<p style='color:#aaa; padding: 20px;'>🔄 Cargando desde MongoDB.</p>";
+    '<div class="info-block"><p class="status-text">🔄 Cargando desde MongoDB...</p></div>';
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
   const walletParam = merchantWallet
@@ -413,13 +369,9 @@ async function loadTransactions(filter = "all") {
     renderHistoryTable(result.data);
   } else {
     historyContainer.innerHTML = `
-      <div style="padding: 20px; background: #1e0038; border-radius: 8px; margin-top: 15px;">
-        <p style='color: #f87171; font-size: 1.1rem;'>
-          ❌ Error cargando transacciones
-        </p>
-        <p style='color: #9ca3af; font-size: 0.9rem; margin-top: 10px;'>
-          ${result.error || "Error desconocido"}
-        </p>
+      <div class="info-block">
+        <p class="status-text">❌ Error cargando transacciones</p>
+        <p class="status-text">${result.error || "Error desconocido"}</p>
       </div>
     `;
   }
@@ -452,9 +404,9 @@ advCopy.addEventListener("click", () => {
     return;
   }
   navigator.clipboard.writeText(fullAddr).then(() => {
-    advCopy.textContent = "📋 Dirección copiada ✅";
+    advCopy.textContent = "Dirección copiada ✅";
     setTimeout(() => {
-      advCopy.textContent = "📋 Copiar dirección";
+      advCopy.textContent = "Copiar dirección";
     }, 1500);
   });
 });
@@ -466,5 +418,3 @@ advLogout.addEventListener("click", () => {
   window.location.href = "login.html";
 });
 
-historyContainer.style.marginBottom = "40px";
-document.body.style.display = "block";

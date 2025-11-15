@@ -6,10 +6,6 @@
     <title>💳 Solana Pay - Restaurante</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <style>
-      body { display: none; }
-    </style>
-
     <link
       href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap"
       rel="stylesheet"
@@ -19,51 +15,56 @@
 
   <body>
     <div class="container">
-
       <div class="card">
-  <button id="toggleAdvanced">⚙️</button>
-  <h2>💳 Solana Pay Terminal</h2>
+        <div class="card-header">
+          <div>
+            <p class="eyebrow">Solana Network</p>
+            <h1>Solana Pay Terminal</h1>
+            <p class="subtitle">Cobros instantáneos en USDC o SOL</p>
+          </div>
+          <button id="toggleAdvanced" class="icon-button" aria-label="Abrir panel de ajustes">
+            ⚙️
+          </button>
+        </div>
 
-  <input
-    id="amount"
-    type="text"
-    inputmode="decimal"
-    placeholder="Monto en USDC"
-  />
+        <label for="amount" class="input-label">Monto a cobrar</label>
+        <input
+          id="amount"
+          type="text"
+          inputmode="decimal"
+          placeholder="0.00"
+        />
 
+        <button id="btnGenerate" class="btn-primary">Generar QR</button>
 
+        <div id="qrcode"></div>
+        <section id="statusContainer" class="info-block"></section>
 
-  <button id="btnGenerate">Generar QR</button>
+        <section id="walletInfo" class="info-block">
+          <p id="walletAddress"></p>
+        </section>
 
-  <div id="qrcode"></div>
-<div id="statusContainer" style="margin-top: 20px; text-align: center;"></div>
+        <!-- Panel de configuración -->
+        <div id="advanced" aria-hidden="true">
+          <label for="token" class="input-label">Token</label>
+          <select id="token">
+            <option value="USDC" selected>USDC</option>
+            <option value="SOL">SOL</option>
+          </select>
 
-  <div id="walletInfo">
-  <div id="walletAddress"></div>
-</div>
+          <p class="panel-title">Acciones rápidas</p>
+          <div class="adv-actions">
+            <button class="advOption" id="advCopy" data-icon="📋">Copiar dirección</button>
+            <button class="advOption" id="advHistory" data-icon="📜">Ver historial</button>
+            <button class="advOption" id="advDownload" data-icon="⬇️">Descargar CSV</button>
+            <button class="advOption danger" id="advLogout" data-icon="🚪">Cerrar sesión</button>
+          </div>
+        </div>
+      </div>
 
-  <!-- Panel de configuración -->
-  <div id="advanced">
-    <label for="token">Token:</label>
-    <select id="token">
-      <option value="USDC" selected>USDC</option>
-      <option value="SOL">SOL</option>
-    </select>
-
-    <!-- Acciones abajo del panel -->
-    <div class="adv-actions">
-      <hr />
-      <button class="advOption" id="advCopy">📋 Copiar dirección</button>
-      <button class="advOption" id="advHistory">📜 Ver historial</button>
-      <button class="advOption" id="advDownload">⬇️ Descargar historial CSV</button>
-      <button class="advOption danger" id="advLogout">🚪 Cerrar sesión</button>
+      <!-- Contenedor de historial -->
+      <section id="historyContainer" class="history-panel"></section>
     </div>
-  </div>
-
-  <!-- Contenedor de historial -->
-  <div id="historyContainer" style="margin-top: 20px; text-align: center;"></div>
-</div>
-
 
     <footer>Hecho con 💜 por Ray | Solana Network</footer>
 
