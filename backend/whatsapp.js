@@ -48,6 +48,7 @@ async function createMongoAuthState(sessionId = SESSION_ID) {
     existingState = { creds: initAuthCreds(), keys: {} };
   }
 
+dev
   const writeData = async () => {
     const data = JSON.stringify(existingState, BufferJSON.replacer);
     await collection.updateOne(
@@ -67,18 +68,6 @@ async function createMongoAuthState(sessionId = SESSION_ID) {
   };
 }
 
-async function getBaileysVersion() {
-  if (!versionPromise) {
-    versionPromise = fetchLatestBaileysVersion().catch((err) => {
-      versionPromise = null;
-      throw err;
-    });
-  }
-
-  const { version } = await versionPromise;
-  return version;
-}
-
 function resetQr() {
   latestQrDataUrl = null;
   latestQrAt = new Date().toISOString();
@@ -92,7 +81,6 @@ async function handleConnectionUpdate(update) {
       latestQrDataUrl = await qrcode.toDataURL(qr, {
         errorCorrectionLevel: "M",
         margin: 1,
-        scale: 4,
       });
       latestQrAt = new Date().toISOString();
       isReady = false;
@@ -129,34 +117,12 @@ async function handleConnectionUpdate(update) {
   }
 }
 
-async function refreshQr(reason = "stale-qr") {
-  if (refreshingQr || isReady) return;
-  refreshingQr = true;
-
-  try {
-    resetQr();
-    if (socket?.ws) {
-      try {
-        socket.ws.close();
-      } catch (err) {
-        console.warn("No se pudo cerrar el socket para refrescar QR", err);
-      }
-    }
-
-    initPromise = null;
-    console.log(`🔄 Refrescando QR de WhatsApp (${reason})`);
-    await initializeClient();
-  } finally {
-    refreshingQr = false;
-  }
-}
-
 async function initializeClient() {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
     authState = await createMongoAuthState();
-    const version = await getBaileysVersion();
+    const { version } = await fetchLatestBaileysVersion();
 
     socket = makeWASocket({
       version,
@@ -180,6 +146,7 @@ async function initializeClient() {
     throw err;
   });
 
+ dev
   return initPromise;
 }
 
