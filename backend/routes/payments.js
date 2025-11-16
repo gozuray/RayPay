@@ -3,6 +3,7 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
+import { sendReceipt } from "../whatsapp.js";
 
 const router = express.Router();
 
@@ -30,6 +31,11 @@ const toBN = (v) => new BigNumber(String(v));
 // Reutilizamos el objeto global
 if (!global.pendingPayments) global.pendingPayments = {};
 
+const normalizePhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits : "";
+};
+
 // Home
 router.get("/", (_req, res) => {
   res.send("RayPay Payments OK");
@@ -38,7 +44,8 @@ router.get("/", (_req, res) => {
 // 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {
   try {
-    let { amount, restaurant, token, merchantWallet } = req.body || {};
+    let { amount, restaurant, token, merchantWallet, phoneNumber } =
+      req.body || {};
 
     if (amount === undefined || isNaN(Number(amount))) {
       return res.status(400).json({ error: "Monto inválido" });
@@ -86,6 +93,7 @@ router.post("/create-payment", (req, res) => {
       created: new Date().toISOString(),
       restaurant: restaurant || "Restaurante",
       merchantWallet: walletStr, // 👉 guardamos la wallet usada en este pago
+      phoneNumber: normalizePhone(phoneNumber),
     };
 
     res.json({
@@ -197,7 +205,28 @@ router.get("/confirm/:reference", async (req, res) => {
         if (e.code !== 11000) console.error("Mongo insert error:", e);
       }
 
+      const phoneNumber = payment.phoneNumber;
+
       delete global.pendingPayments[reference];
+
+      if (phoneNumber) {
+        const hashStart = sigInfo.signature.slice(0, 6);
+        const hashEnd = sigInfo.signature.slice(-6);
+        const finalWallet = merchant.slice(-8);
+        const receiptData = {
+          amount: doc.amount,
+          date: doc.date,
+          time: doc.time,
+          finalWallet,
+          hashStart,
+          hashEnd,
+        };
+
+        sendReceipt(phoneNumber, receiptData).catch((err) => {
+          console.error("No se pudo enviar el recibo por WhatsApp:", err);
+        });
+      }
+
       return res.json({
         status: "pagado",
         signature: sigInfo.signature,

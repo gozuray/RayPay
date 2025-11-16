@@ -101,6 +101,7 @@ h1 {
 
 /* === INPUT === */
 input[type="text"],
+input[type="tel"],
 #advanced select {
   width: 100%;
   padding: 15px;
