@@ -15,7 +15,7 @@ import {
 } from "@solana/web3.js";
 import { getDB } from "../db.js";
 import { verifyToken as decodeToken } from "../utils/auth.js";
-import { getBotQrStatus } from "../whatsapp.js";
+import { getBotQrStatus } from "../bot.js";
 
 const router = express.Router();
 

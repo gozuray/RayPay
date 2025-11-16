@@ -3,7 +3,7 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
-import { sendReceipt } from "../whatsapp.js";
+import { sendReceipt } from "../bot.js";
 
 const router = express.Router();
 
@@ -28,20 +28,20 @@ const connection = new Connection(RPC_URL, {
 
 const toBN = (v) => new BigNumber(String(v));
 
-const buildReceiptData = (paymentDoc) => {
+const buildReceiptMessage = (paymentDoc) => {
   if (!paymentDoc) return null;
 
   const hash = String(paymentDoc.signature || "");
   const merchantWallet = String(paymentDoc.merchantWallet || "");
 
-  return {
-    amount: paymentDoc.amount,
-    date: paymentDoc.date,
-    time: paymentDoc.time,
-    finalWallet: merchantWallet.slice(-8),
-    hashStart: hash.slice(0, 6),
-    hashEnd: hash.slice(-6),
-  };
+  return (
+    "📄 *Recibo de Pago*\n\n" +
+    `Monto: ${paymentDoc.amount || "N/A"}\n` +
+    `Fecha: ${paymentDoc.date || ""} ${paymentDoc.time || ""}\n` +
+    `Wallet destino: ...${merchantWallet.slice(-8)}\n` +
+    `Tx: ${hash.slice(0, 6)}...${hash.slice(-6)}\n\n` +
+    "Gracias por tu pago 🙌"
+  );
 };
 
 // Reutilizamos el objeto global
@@ -369,13 +369,13 @@ router.post("/receipt/:reference", async (req, res) => {
       return res.status(400).json({ error: "El pago aún no está confirmado" });
     }
 
-    const receiptData = buildReceiptData(payment);
+    const receiptText = buildReceiptMessage(payment);
 
-    if (!receiptData) {
+    if (!receiptText) {
       return res.status(400).json({ error: "No se pudo preparar el recibo" });
     }
 
-    await sendReceipt(phoneNumber, receiptData);
+    await sendReceipt(phoneNumber, receiptText);
 
     res.json({ success: true });
   } catch (err) {
