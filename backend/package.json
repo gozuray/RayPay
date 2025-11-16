@@ -9,21 +9,22 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
-    "@solana/pay": "^0.2.5",
-    "@solana/web3.js": "^1.95.8",
-    "archiver": "^7.0.1",
-    "@adiwajshing/baileys": "6.5.0",
-    "bcryptjs": "^3.0.3",
-    "bignumber.js": "^9.1.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "fs-extra": "^11.2.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.12.0",
-    "qrcode": "^1.5.4",
-    "unzipper": "^0.11.4"
-  },
+  "@solana/pay": "^0.2.5",
+  "@solana/web3.js": "^1.95.8",
+  "archiver": "^7.0.1",
+  "@adiwajshing/baileys": "github:WhiskeySockets/Baileys",
+  "bcryptjs": "^3.0.3",
+  "bignumber.js": "^9.1.2",
+  "cors": "^2.8.5",
+  "dotenv": "^16.4.7",
+  "express": "^4.21.2",
+  "fs-extra": "^11.2.0",
+  "jsonwebtoken": "^9.0.2",
+  "mongodb": "^6.12.0",
+  "qrcode": "^1.5.4",
+  "unzipper": "^0.11.4"
+}
+,
   "devDependencies": {
     "nodemon": "^3.1.9"
   },
