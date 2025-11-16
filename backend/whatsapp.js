@@ -17,6 +17,8 @@ let initPromise;
 let isReady = false;
 let latestQrDataUrl = null;
 let latestQrAt = null;
+let refreshingQr = false;
+let versionPromise;
 
 async function getSessionsCollection() {
   await connectMongo();
@@ -46,6 +48,7 @@ async function createMongoAuthState(sessionId = SESSION_ID) {
     existingState = { creds: initAuthCreds(), keys: {} };
   }
 
+dev
   const writeData = async () => {
     const data = JSON.stringify(existingState, BufferJSON.replacer);
     await collection.updateOne(
@@ -143,6 +146,7 @@ async function initializeClient() {
     throw err;
   });
 
+ dev
   return initPromise;
 }
 
@@ -187,6 +191,14 @@ function formatPhone(number) {
 }
 
 export function getBotQrStatus() {
+  if (!isReady) {
+    const qrAgeMs = latestQrAt ? Date.now() - new Date(latestQrAt).getTime() : null;
+
+    if (!refreshingQr && (!latestQrDataUrl || (qrAgeMs ?? Infinity) > 20000)) {
+      refreshQr(!latestQrDataUrl ? "missing-qr" : "stale-qr").catch(() => {});
+    }
+  }
+
   return {
     qrDataUrl: latestQrDataUrl,
     updatedAt: latestQrAt,
