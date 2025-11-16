@@ -77,6 +77,8 @@ router.get("/bot-qr", verifyToken, (_req, res) => {
     ready: Boolean(status.ready),
     qrDataUrl: status.qrDataUrl || null,
     updatedAt: status.updatedAt || null,
+    state: status.state || null,
+    lastError: status.lastError || null,
   });
 });
 
