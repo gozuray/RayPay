@@ -462,6 +462,37 @@ button:disabled {
   width: 100%;
 }
 
+.phone-row select {
+  appearance: none;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(125, 107, 255, 0.12));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 14px 16px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(7, 3, 15, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.phone-row select:hover {
+  border-color: rgba(125, 107, 255, 0.65);
+  transform: translateY(-1px);
+}
+
+.phone-row select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(125, 107, 255, 0.14), 0 10px 30px rgba(7, 3, 15, 0.45);
+  border-color: rgba(125, 107, 255, 0.8);
+}
+
+.phone-row select option {
+  background: var(--bg-dark);
+  color: var(--text-main);
+}
+
 .send-receipt-btn {
   background: linear-gradient(90deg, #0c9b4f, #13c370);
   border: none;
