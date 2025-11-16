@@ -54,6 +54,7 @@ let checkInterval = null;
 let currentReference = null;
 let lastHistoryData = null;
 let lastConfirmedPayment = null;
+let receiptSending = false;
 
 // Cache local del saldo disponible
 let availableBalances = { USDC: 0, SOL: 0 };
@@ -395,6 +396,14 @@ function updateReceiptStatus(message, disabled = false) {
   if (sendReceiptBtn) sendReceiptBtn.disabled = disabled;
 }
 
+function setSendReceiptState(inProgress) {
+  if (!sendReceiptBtn) return;
+  receiptSending = inProgress;
+  sendReceiptBtn.disabled =
+    inProgress || !lastConfirmedPayment || !lastConfirmedPayment.reference;
+  sendReceiptBtn.classList.toggle("loading", inProgress);
+}
+
 // === Consultar estado del pago ===
 async function checkPaymentStatus(reference) {
   if (!reference) return;
@@ -413,6 +422,7 @@ async function checkPaymentStatus(reference) {
         "Pago confirmado. Envía el recibo con la flecha verde.",
         false
       );
+      setSendReceiptState(false);
       currentReference = null;
 
       await loadTransactions(currentFilter, { render: false });
@@ -448,6 +458,7 @@ async function sendReceiptForReference(
   statusEl,
   buttonEl
 ) {
+  if (receiptSending) return;
   if (!reference) {
     if (statusEl)
       statusEl.textContent =
@@ -465,7 +476,12 @@ async function sendReceiptForReference(
   }
 
   if (statusEl) statusEl.textContent = "Enviando recibo por WhatsApp...";
-  if (buttonEl) buttonEl.disabled = true;
+  const originalLabel = buttonEl?.textContent;
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Enviando...";
+  }
+  setSendReceiptState(true);
 
   try {
     await safeJsonFetch(`${API_URL}/receipt/${reference}`, {
@@ -478,7 +494,11 @@ async function sendReceiptForReference(
   } catch (err) {
     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
   } finally {
-    if (buttonEl) buttonEl.disabled = false;
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = originalLabel || "";
+    }
+    setSendReceiptState(false);
   }
 }
 

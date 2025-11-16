@@ -116,6 +116,23 @@ function stopBotPolling() {
   }
 }
 
+function describeBotState(state, lastError) {
+  switch (state) {
+    case "ready":
+      return "Bot listo y conectado ✅";
+    case "qr":
+      return "Bot esperando que escanees el código QR";
+    case "connecting":
+      return "Bot conectando con WhatsApp...";
+    case "disconnected":
+      return "Bot desconectado. Reintentando...";
+    case "error":
+      return `Bot en error${lastError ? `: ${lastError}` : ""}`;
+    default:
+      return "Consultando estado del bot...";
+  }
+}
+
 async function fetchBotQr(showLoading = false) {
   if (!botQrImage || !botStatus) return;
 
@@ -131,8 +148,9 @@ async function fetchBotQr(showLoading = false) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
 
+    botStatus.textContent = describeBotState(data.state, data.lastError);
+
     if (data.ready) {
-      botStatus.textContent = "Bot listo y conectado ✅";
       botQrImage.style.visibility = "hidden";
       return;
     }
