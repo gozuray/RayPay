@@ -1,7 +1,7 @@
-import { default as makeWASocket,
-  useMultiFileAuthState,
+import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
+  useMultiFileAuthState,
 } from "@adiwajshing/baileys";
 import qrcode from "qrcode";
 
@@ -13,6 +13,7 @@ let qrUpdatedAt = null;
 let isReady = false;
 let isStarting = false;
 let startPromise = null;
+let saveCredsRef = null;
 
 async function createSocket() {
   const { state, saveCreds } = await authStatePromise;
@@ -24,15 +25,22 @@ async function createSocket() {
     version,
   });
 
-  socket.ev.on("creds.update", saveCreds);
-  socket.ev.on("connection.update", (u) => {
-    if (u.connection === "open") saveCreds();
+  saveCredsRef = saveCreds;
+
+  socket.ev.process(async (events) => {
+    if (events["connection.update"]) {
+      await handleConnectionUpdate(events["connection.update"]);
+    }
+
+    if (events["creds.update"]) {
+      await saveCreds();
+    }
   });
 
   return socket;
 }
 
-function handleConnectionUpdate(update) {
+async function handleConnectionUpdate(update) {
   const { connection, lastDisconnect, qr } = update;
 
   if (qr) {
@@ -50,6 +58,10 @@ function handleConnectionUpdate(update) {
   }
 
   if (connection === "open") {
+    if (saveCredsRef) {
+      await saveCredsRef();
+    }
+
     console.log("✅ Cliente de WhatsApp conectado");
     qrDataUrl = null;
     qrUpdatedAt = null;
@@ -65,7 +77,7 @@ function handleConnectionUpdate(update) {
 
     if (shouldReconnect) {
       console.log("♻️ Reconectando a WhatsApp...");
-      startBot();
+      await startBot();
     } else {
       console.log("❌ Sesión cerrada, escanear nuevo QR");
     }
@@ -79,9 +91,6 @@ export async function startBot() {
   startPromise = (async () => {
     try {
       sock = await createSocket();
-
-      sock.ev.on("connection.update", handleConnectionUpdate);
-
       return sock;
     } catch (err) {
       console.error("❌ No se pudo iniciar el cliente de WhatsApp:", err);
