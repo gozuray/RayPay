@@ -1,6 +1,7 @@
 import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
   useSingleFileAuthState,
-  DisconnectReason
 } from "@adiwajshing/baileys";
 import qrcode from "qrcode";
 
@@ -11,53 +12,82 @@ let qrDataUrl = null;
 let qrUpdatedAt = null;
 let isReady = false;
 let isStarting = false;
+let startPromise = null;
 
-export async function startBot() {
-  if (isStarting) return;
+async function createSocket() {
+  const { version } = await fetchLatestBaileysVersion();
 
-  isStarting = true;
-  try {
-    sock = makeWASocket({
-      auth: state,
-      printQRInTerminal: false
-    });
+  return makeWASocket({
+    auth: state,
+    version,
+    printQRInTerminal: false,
+    syncFullHistory: false,
+  });
+}
 
-    sock.ev.on("connection.update", async (update) => {
-      const { connection, lastDisconnect, qr } = update;
+function handleConnectionUpdate(update) {
+  const { connection, lastDisconnect, qr } = update;
 
-      if (qr) {
-        qrDataUrl = await qrcode.toDataURL(qr);
+  if (qr) {
+    qrcode
+      .toDataURL(qr)
+      .then((dataUrl) => {
+        qrDataUrl = dataUrl;
         qrUpdatedAt = new Date().toISOString();
         isReady = false;
         console.log("🔐 Nuevo QR generado");
-      }
-
-      if (connection === "open") {
-        console.log("✅ Cliente de WhatsApp conectado");
-        qrDataUrl = null;
-        qrUpdatedAt = null;
-        isReady = true;
-      }
-
-      if (connection === "close") {
-        const reason = lastDisconnect?.error?.output?.statusCode;
-        isReady = false;
-
-        if (reason !== DisconnectReason.loggedOut) {
-          console.log("♻️ Reconectando a WhatsApp...");
-          startBot();
-        } else {
-          console.log("❌ Sesión cerrada, escanear nuevo QR");
-        }
-      }
-    });
-
-    sock.ev.on("creds.update", saveState);
-  } catch (err) {
-    console.error("❌ No se pudo iniciar el cliente de WhatsApp:", err);
-  } finally {
-    isStarting = false;
+      })
+      .catch((err) =>
+        console.error("❌ Error generando QR de WhatsApp:", err)
+      );
   }
+
+  if (connection === "open") {
+    console.log("✅ Cliente de WhatsApp conectado");
+    qrDataUrl = null;
+    qrUpdatedAt = null;
+    isReady = true;
+    return;
+  }
+
+  if (connection === "close") {
+    const statusCode =
+      lastDisconnect?.error?.output?.statusCode ||
+      lastDisconnect?.error?.statusCode;
+    const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+    isReady = false;
+
+    if (shouldReconnect) {
+      console.log("♻️ Reconectando a WhatsApp...");
+      startBot();
+    } else {
+      console.log("❌ Sesión cerrada, escanear nuevo QR");
+    }
+  }
+}
+
+export async function startBot() {
+  if (isStarting && startPromise) return startPromise;
+
+  isStarting = true;
+  startPromise = (async () => {
+    try {
+      sock = await createSocket();
+
+      sock.ev.on("connection.update", handleConnectionUpdate);
+      sock.ev.on("creds.update", saveState);
+
+      return sock;
+    } catch (err) {
+      console.error("❌ No se pudo iniciar el cliente de WhatsApp:", err);
+      throw err;
+    } finally {
+      isStarting = false;
+    }
+  })();
+
+  return startPromise;
 }
 
 export function getQrImage() {
@@ -74,12 +104,10 @@ export function getBotQrStatus() {
 
 export async function sendReceipt(phoneNumber, receiptData) {
   try {
-    if (!sock) {
-      await startBot();
-    }
+    await startBot();
 
-    if (!sock) {
-      throw new Error("Cliente de WhatsApp no inicializado");
+    if (!sock || !isReady) {
+      throw new Error("Cliente de WhatsApp no inicializado o no conectado");
     }
 
     const jid = `${phoneNumber}@s.whatsapp.net`;
