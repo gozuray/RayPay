@@ -17,6 +17,8 @@ const keysContainer = document.getElementById("keysTable");
 const destinationMerchantSelect = document.getElementById("destinationMerchantSelect");
 const destinationWalletInput = document.getElementById("destinationWalletInput");
 const destinationStatus = document.getElementById("destinationStatus");
+const cashoutTable = document.getElementById("cashoutTable");
+const sidebarCashout = document.getElementById("sidebarCashout");
 const tabButtons = document.querySelectorAll("[data-tab-target]");
 const tabPanels = document.querySelectorAll(".subpanel");
 const modal = document.getElementById("modal");
@@ -31,6 +33,8 @@ const saveBtn = document.getElementById("saveBtn");
 // Variables globales
 let editingID = null;
 let merchantsCache = [];
+const CASHOUT_REQUESTS_KEY = "raypay_cashout_requests";
+const CASHOUT_COMPLETED_KEY = "raypay_cashout_completed";
 
 // =====================
 //  Helpers de UI
@@ -47,11 +51,42 @@ function setupSubtabs() {
       tabPanels.forEach((panel) => {
         panel.classList.toggle("active", panel.dataset.panel === target);
       });
+
+      if (target === "tab-cashout") {
+        clearCashoutAlert();
+        renderCashoutRequests();
+      }
     });
   });
 }
 
 setupSubtabs();
+
+if (sidebarCashout) {
+  sidebarCashout.addEventListener("click", () => {
+    const target = sidebarCashout.dataset.tabTarget;
+    tabButtons.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tabTarget === target);
+    });
+    tabPanels.forEach((panel) => {
+      panel.classList.toggle("active", panel.dataset.panel === target);
+    });
+    clearCashoutAlert();
+    renderCashoutRequests();
+  });
+}
+
+function readJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function saveJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
 
 function toggleWalletInput() {
   if (formWalletMode.value === "manual") {
@@ -70,6 +105,31 @@ function formatBalance(value, decimals = 4) {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
+}
+
+function getCashoutRequests() {
+  return readJson(CASHOUT_REQUESTS_KEY, []);
+}
+
+function getCompletedCashouts() {
+  return readJson(CASHOUT_COMPLETED_KEY, []);
+}
+
+function updateCashoutIndicator() {
+  const hasPending = getCashoutRequests().some((req) => req.status === "pendiente");
+  if (sidebarCashout) {
+    sidebarCashout.classList.toggle("alert", hasPending);
+  }
+  tabButtons.forEach((btn) => {
+    if (btn.dataset.tabTarget === "tab-cashout") {
+      btn.classList.toggle("alert", hasPending);
+    }
+  });
+}
+
+function clearCashoutAlert() {
+  localStorage.setItem("raypay_cashout_alert", "viewed");
+  updateCashoutIndicator();
 }
 
 function setDestinationStatus(message, isError = false) {
@@ -95,6 +155,63 @@ function syncDestinationWalletInput() {
     );
   }
 }
+
+function renderCashoutRequests() {
+  if (!cashoutTable) return;
+  const requests = getCashoutRequests();
+
+  if (!requests.length) {
+    cashoutTable.innerHTML = '<p class="table-status">No hay solicitudes pendientes.</p>';
+    updateCashoutIndicator();
+    return;
+  }
+
+  let html = `
+    <table class="table">
+      <tr>
+        <th>Negocio</th>
+        <th>Método</th>
+        <th>Monto</th>
+        <th>Estado</th>
+        <th>Acciones</th>
+      </tr>
+  `;
+
+  requests.forEach((req, index) => {
+    const amountLabel = `${req.token || "USDC"} ${Number(req.amount || 0).toFixed(2)}`;
+    html += `
+      <tr>
+        <td>${req.merchant || "—"}</td>
+        <td>${req.method || "—"}</td>
+        <td>${amountLabel}</td>
+        <td><span class="status-pill pending">Pendiente</span></td>
+        <td>
+          <div class="cashout-actions">
+            <button class="btn-approve" onclick="approveCashout(${index})">Aprobar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += "</table>";
+  cashoutTable.innerHTML = html;
+  updateCashoutIndicator();
+}
+
+window.approveCashout = (rowIndex) => {
+  const requests = getCashoutRequests();
+  const entry = requests.splice(rowIndex, 1)[0];
+
+  if (entry) {
+    const completed = getCompletedCashouts();
+    completed.push({ ...entry, status: "aprobado" });
+    saveJson(CASHOUT_COMPLETED_KEY, completed);
+  }
+
+  saveJson(CASHOUT_REQUESTS_KEY, requests);
+  renderCashoutRequests();
+};
 
 // Actualiza opciones del select + mantiene selección
 function updateDestinationForm(preserveId) {
@@ -310,6 +427,8 @@ async function loadPrivateKeys() {
 // Cargar al inicio
 loadMerchants(true);
 loadPrivateKeys();
+renderCashoutRequests();
+updateCashoutIndicator();
 
 // =====================
 //  MODAL: Crear / Editar
@@ -585,3 +704,4 @@ window.logout = logout;
 window.refreshMerchants = refreshMerchants;
 window.triggerClaim = triggerClaim;
 window.saveDestinationWallet = saveDestinationWallet;
+window.approveCashout = window.approveCashout;

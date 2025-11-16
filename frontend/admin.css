@@ -40,6 +40,12 @@ body {
   background: #4c007d;
 }
 
+.sidebar li.alert {
+  background: #5b0a16;
+  color: #ffcaca;
+  box-shadow: 0 0 0 1px rgba(255, 128, 128, 0.4);
+}
+
 .main {
   flex: 1;
   padding: 30px;
@@ -73,6 +79,12 @@ body {
   background: #7c3aed;
   color: white;
   box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+}
+
+.subtab.alert {
+  background: #a3162c;
+  border-color: #f26666;
+  box-shadow: 0 0 14px rgba(241, 116, 129, 0.4);
 }
 
 .subpanel {
@@ -177,6 +189,43 @@ body {
   background: #1e4045;
   color: #6b8b90;
   cursor: not-allowed;
+}
+
+.cashout-section .table-wrapper {
+  margin-top: 18px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.status-pill.pending {
+  background: rgba(255, 196, 105, 0.15);
+  color: #ffd79a;
+}
+
+.status-pill.approved {
+  background: rgba(122, 240, 210, 0.15);
+  color: #a4ffe3;
+}
+
+.cashout-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-approve {
+  background: #22c55e;
+  color: #03210f;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 /* MODAL */
