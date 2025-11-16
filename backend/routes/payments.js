@@ -63,12 +63,24 @@ router.post("/create-payment", (req, res) => {
     let { amount, restaurant, token, merchantWallet, phoneNumber } =
       req.body || {};
 
-    if (amount === undefined || isNaN(Number(amount))) {
+    // Normalizar monto para evitar NaN cuando el cliente envía comas o símbolos
+    const sanitizedAmount = String(amount || "")
+      .replace(",", ".")
+      .replace(/[^0-9.]/g, "")
+      .split(".")
+      .filter((chunk, index) => chunk !== "" || index === 0)
+      .join(".");
+
+    const chosenToken = token === "SOL" ? "SOL" : "USDC";
+    const decimals = chosenToken === "SOL" ? 5 : 3;
+
+    const numericAmount = Number(parseFloat(sanitizedAmount).toFixed(decimals));
+
+    if (!numericAmount || Number.isNaN(numericAmount) || numericAmount <= 0) {
       return res.status(400).json({ error: "Monto inválido" });
     }
 
-    const chosenToken = token === "SOL" ? "SOL" : "USDC";
-    amount = parseFloat(amount).toFixed(chosenToken === "SOL" ? 5 : 3);
+    amount = numericAmount.toFixed(decimals);
 
     // 1️⃣ Determinar qué wallet usar
     const bodyWallet = (merchantWallet || "").trim();

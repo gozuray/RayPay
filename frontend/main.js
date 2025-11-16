@@ -524,6 +524,7 @@ btn.addEventListener("click", async () => {
 
   let raw = amountInput.value.trim();
   raw = clampDecimals(raw, decimals);
+  amountInput.value = raw;
   const amount = parseFloat(raw);
 
   if (isNaN(amount) || amount <= 0) {
