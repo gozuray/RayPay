@@ -1,16 +1,14 @@
+import fs from "fs/promises";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import qrcode from "qrcode";
-import {
-  makeWASocket,
-  BufferJSON,
+import makeWASocket, {
   DisconnectReason,
-  fetchLatestBaileysVersion,
-  initAuthCreds,
-  makeCacheableSignalKeyStore,
-} from "baileys";
+  useSingleFileAuthState,
+} from "@adiwajshing/baileys";
 
-import { connectMongo, getDB } from "./db.js";
-
-const SESSION_ID = "raypay";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const AUTH_FILE_PATH = join(__dirname, "whatsapp_auth.json");
 
 let socket;
 let authState;
@@ -19,7 +17,6 @@ let isReady = false;
 let latestQrDataUrl = null;
 let latestQrAt = null;
 let refreshingQr = false;
-let versionPromise;
 let connecting = false;
 
 async function refreshQr(reason = "manual") {
@@ -36,76 +33,6 @@ async function refreshQr(reason = "manual") {
   } finally {
     refreshingQr = false;
   }
-}
-
-async function getSessionsCollection() {
-  await connectMongo();
-  return getDB().collection("whatsapp_sessions");
-}
-
-async function createMongoAuthState(sessionId = SESSION_ID) {
-  const collection = await getSessionsCollection();
-  const doc = await collection.findOne({ sessionId });
-
-  const parseSafe = (raw, fallback) => {
-    try {
-      return JSON.parse(JSON.stringify(raw ?? fallback), BufferJSON.reviver);
-    } catch (err) {
-      console.warn(
-        "⚠️ No se pudo leer la sesión previa de WhatsApp, se regenerará",
-        err?.message
-      );
-      return fallback;
-    }
-  };
-
-  // Migración de formato: si existe "data" (string) se parsea, si no se usan
-  // los campos separados "creds" y "keys".
-  const parsedLegacy = doc?.data
-    ? parseSafe(
-        typeof doc.data === "string" ? doc.data : doc.data.toString(),
-        null
-      )
-    : null;
-
-  const creds = parsedLegacy?.creds
-    ? parsedLegacy.creds
-    : parseSafe(doc?.creds, initAuthCreds());
-  const keys = parsedLegacy?.keys ? parsedLegacy.keys : parseSafe(doc?.keys, {});
-
-  const serialize = (value) => JSON.parse(JSON.stringify(value, BufferJSON.replacer));
-  let writeQueue = Promise.resolve();
-
-  const writeData = async () => {
-    writeQueue = writeQueue
-      .catch(() => {})
-      .then(async () => {
-        await collection.updateOne(
-          { sessionId },
-          {
-            $set: {
-              sessionId,
-              creds: serialize(creds),
-              keys: serialize(keys),
-              updatedAt: new Date(),
-            },
-            $unset: { data: "" },
-          },
-          { upsert: true }
-        );
-      });
-
-    return writeQueue;
-  };
-
-  return {
-    state: {
-      creds,
-      keys: makeCacheableSignalKeyStore(keys, writeData),
-    },
-    saveCreds: writeData,
-    clearState: async () => collection.deleteOne({ sessionId }),
-  };
 }
 
 function resetQr() {
@@ -134,7 +61,7 @@ async function handleConnectionUpdate(update) {
     connecting = false;
     resetQr();
     console.log("✅ Cliente de WhatsApp listo (Baileys)");
-    await authState?.saveCreds?.();
+    await authState?.saveState?.();
     return;
   }
 
@@ -147,9 +74,10 @@ async function handleConnectionUpdate(update) {
       statusCode !== DisconnectReason.badSession;
 
     if (!shouldReconnect) {
-      await authState?.clearState?.();
+      await fs.unlink(AUTH_FILE_PATH).catch(() => {});
       resetQr();
       initPromise = null;
+      authState = null;
       console.warn("🔌 Sesión de WhatsApp eliminada, se requiere nuevo QR");
       return;
     }
@@ -165,11 +93,8 @@ async function initializeClient() {
 
   initPromise = (async () => {
     connecting = true;
-    authState = await createMongoAuthState();
-    const { version } = await fetchLatestBaileysVersion();
-
+    authState = useSingleFileAuthState(AUTH_FILE_PATH);
     socket = makeWASocket({
-      version,
       auth: authState.state,
       printQRInTerminal: false,
       browser: ["RayPay", "Render", "1.0"],
@@ -177,7 +102,7 @@ async function initializeClient() {
       markOnlineOnConnect: false,
     });
 
-    socket.ev.on("creds.update", authState.saveCreds);
+    socket.ev.on("creds.update", authState.saveState);
     socket.ev.on("connection.update", (update) => {
       handleConnectionUpdate(update).catch((err) =>
         console.error("Error manejando actualización de conexión:", err)
