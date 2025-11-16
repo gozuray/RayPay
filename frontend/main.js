@@ -276,13 +276,14 @@ function clampDecimals(valueStr, decimals) {
   return v;
 }
 
-function getDialFromSelect() {
-  const currentCode = countryCodeSelect?.value || "PT";
+function getDialFromSelect(selectEl = countryCodeSelect) {
+  const currentCode = selectEl?.value || "PT";
   return (
     COUNTRY_OPTIONS.find((item) => item.code === currentCode)?.dial ||
     "+351"
   );
 }
+
 
 function ensurePhonePrefix(dialCode) {
   if (!phoneInput) return;
@@ -296,24 +297,25 @@ function ensurePhonePrefix(dialCode) {
     : digits;
 
   phoneInput.value = withoutDial;
+ dev
 }
 
-function populateCountrySelect() {
-  if (!countryCodeSelect) return;
+function populateCountrySelect(selectEl = countryCodeSelect, inputEl = phoneInput) {
+  if (!selectEl) return;
 
-  countryCodeSelect.innerHTML = COUNTRY_OPTIONS.map(
+  selectEl.innerHTML = COUNTRY_OPTIONS.map(
     ({ code, name, dial }) =>
       `<option value="${code}" data-dial="${dial}">${name} (${dial})</option>`
   ).join("");
 
-  countryCodeSelect.value = "PT";
-  ensurePhonePrefix(getDialFromSelect());
+  selectEl.value = "PT";
+  ensurePhonePrefix(getDialFromSelect(selectEl), inputEl);
 }
 
-function buildFullPhoneNumber() {
-  const dial = getDialFromSelect();
+function buildFullPhoneNumber(selectEl = countryCodeSelect, inputEl = phoneInput) {
+  const dial = getDialFromSelect(selectEl);
   const dialDigits = dial.replace(/\D/g, "");
-  const rawDigits = (phoneInput?.value || "").replace(/\D/g, "");
+  const rawDigits = (inputEl?.value || "").replace(/\D/g, "");
   const stripped = rawDigits.startsWith(dialDigits)
     ? rawDigits.slice(dialDigits.length)
     : rawDigits;
@@ -430,25 +432,53 @@ async function sendReceiptManually() {
     return;
   }
 
-  const { full, digits } = buildFullPhoneNumber();
+  await sendReceiptForReference(
+    lastConfirmedPayment.reference,
+    countryCodeSelect,
+    phoneInput,
+    receiptStatus,
+    sendReceiptBtn
+  );
+}
 
-  if (!digits || !full) {
-    updateReceiptStatus("Ingresa un número válido para WhatsApp.", true);
+async function sendReceiptForReference(
+  reference,
+  selectEl,
+  inputEl,
+  statusEl,
+  buttonEl
+) {
+  if (!reference) {
+    if (statusEl)
+      statusEl.textContent =
+        "No hay referencia asociada para reenviar el recibo.";
     return;
   }
 
-  updateReceiptStatus("Enviando recibo por WhatsApp...", true);
+  const { full, digits } = buildFullPhoneNumber(selectEl, inputEl);
+
+  if (!digits || !full) {
+    if (statusEl)
+      statusEl.textContent = "Ingresa un número válido para WhatsApp.";
+    if (buttonEl) buttonEl.disabled = false;
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = "Enviando recibo por WhatsApp...";
+  if (buttonEl) buttonEl.disabled = true;
 
   try {
-    await safeJsonFetch(`${API_URL}/receipt/${lastConfirmedPayment.reference}`, {
+    await safeJsonFetch(`${API_URL}/receipt/${reference}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phoneNumber: full }),
     });
 
-    updateReceiptStatus("Recibo enviado por WhatsApp ✅", false);
+    if (statusEl) statusEl.textContent = "Recibo enviado por WhatsApp ✅";
   } catch (err) {
-    updateReceiptStatus(`Error: ${err.message}`, false);
+    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+  } finally {
+    if (buttonEl) buttonEl.disabled = false;
   }
 }
 
@@ -624,7 +654,7 @@ function renderHistoryTable(data) {
     `;
   } else {
     const rows = transactions
-      .map((tx) => {
+      .map((tx, index) => {
         const shortPayer =
           tx.payer && tx.payer.length > 10
             ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
@@ -634,7 +664,7 @@ function renderHistoryTable(data) {
         const pillLabel = tx.status === "success" ? "Completo" : tx.status;
 
         return `
-          <tr>
+          <tr class="history-row" onclick="openTransactionDetails(${index})">
             <td>
               ${tx.date}
               <span class="table-meta">${tx.time}</span>
@@ -675,6 +705,100 @@ function renderHistoryTable(data) {
     ${tableSection}
   `);
 }
+
+function renderTransactionDetails(tx, index) {
+  if (!tx) return;
+
+  const statusLabel = tx.status === "success" ? "Completo" : tx.status;
+  const shortSignature = tx.signature
+    ? `${tx.signature.slice(0, 12)}...`
+    : "N/A";
+
+  const baseStatus = tx.reference
+    ? "Envía nuevamente el recibo por WhatsApp."
+    : "Esta operación no tiene referencia disponible para enviar un recibo.";
+
+  renderHistoryLayout(`
+    <div class="detail-grid">
+      <div class="detail-row"><span>Fecha</span><strong>${tx.date} ${tx.time}</strong></div>
+      <div class="detail-row"><span>Monto</span><strong>${tx.token} ${tx.amount}</strong></div>
+      <div class="detail-row"><span>Pagador</span><strong>${tx.payer || "N/A"}</strong></div>
+      <div class="detail-row"><span>Estado</span><strong>${statusLabel}</strong></div>
+      <div class="detail-row"><span>Referencia</span><strong>${
+        tx.reference || "N/A"
+      }</strong></div>
+      <div class="detail-row"><span>Firma</span><strong>${shortSignature}</strong></div>
+    </div>
+
+    <div class="receipt-section">
+      <p class="subtitle">Enviar recibo histórico</p>
+      <div class="phone-row">
+        <select id="historyCountryCode" aria-label="Código de país"></select>
+        <input
+          id="historyPhoneNumber"
+          type="tel"
+          inputmode="tel"
+          placeholder="Ej: 912 345 678"
+        />
+        <button
+          id="historySendReceiptBtn"
+          class="send-receipt-btn"
+          type="button"
+          title="Enviar recibo por WhatsApp"
+        >
+          ➡️
+        </button>
+      </div>
+      <p id="historyReceiptStatus" class="status-text">${baseStatus}</p>
+    </div>
+
+    <div class="history-actions">
+      <button class="btn-secondary" onclick="renderHistoryTable(lastHistoryData)">
+        ← Volver al historial
+      </button>
+      <button class="btn-ghost" onclick="hideHistory()">✕ Cerrar</button>
+    </div>
+  `);
+
+  const detailCountryCode = document.getElementById("historyCountryCode");
+  const detailPhoneNumber = document.getElementById("historyPhoneNumber");
+  const detailSendBtn = document.getElementById("historySendReceiptBtn");
+  const detailStatus = document.getElementById("historyReceiptStatus");
+
+  populateCountrySelect(detailCountryCode, detailPhoneNumber);
+  ensurePhonePrefix(getDialFromSelect(detailCountryCode), detailPhoneNumber);
+
+  detailCountryCode?.addEventListener("change", () =>
+    ensurePhonePrefix(getDialFromSelect(detailCountryCode), detailPhoneNumber)
+  );
+
+  detailPhoneNumber?.addEventListener("input", () =>
+    ensurePhonePrefix(getDialFromSelect(detailCountryCode), detailPhoneNumber)
+  );
+
+  if (detailSendBtn) {
+    detailSendBtn.disabled = !tx.reference;
+    detailSendBtn.addEventListener("click", () =>
+      sendReceiptForReference(
+        tx.reference,
+        detailCountryCode,
+        detailPhoneNumber,
+        detailStatus,
+        detailSendBtn
+      )
+    );
+  }
+
+  if (!tx.reference && detailStatus) {
+    detailStatus.textContent =
+      "No se encontró una referencia válida para esta operación.";
+  }
+}
+
+window.openTransactionDetails = (index) => {
+  const tx = lastHistoryData?.data?.[index];
+  renderTransactionDetails(tx, index);
+};
 
 window.filterTransactions = async (filter) => {
   currentFilter = filter;
@@ -1039,6 +1163,12 @@ if (countryCodeSelect) {
   countryCodeSelect.addEventListener("change", () => {
     ensurePhonePrefix(getDialFromSelect());
   });
+}
+
+if (phoneInput) {
+  phoneInput.addEventListener("input", () =>
+    ensurePhonePrefix(getDialFromSelect(), phoneInput)
+  );
 }
 
 if (sendReceiptBtn) {
