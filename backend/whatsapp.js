@@ -1,5 +1,6 @@
 import qrcode from "qrcode";
-import makeWASocket, {
+import {
+  makeWASocket,
   BufferJSON,
   DisconnectReason,
   fetchLatestBaileysVersion,
