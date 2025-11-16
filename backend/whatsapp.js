@@ -1,9 +1,11 @@
-import baileys from "@adiwajshing/baileys";
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+} from "@adiwajshing/baileys";
 import qrcode from "qrcode";
 
-const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = baileys;
-
-const { state, saveState } = useSingleFileAuthState("./whatsapp_auth.json");
+const authStatePromise = useMultiFileAuthState("./whatsapp_auth");
 
 let sock = null;
 let qrDataUrl = null;
@@ -13,11 +15,21 @@ let isStarting = false;
 let startPromise = null;
 
 async function createSocket() {
-  return makeWASocket({
+  const { state, saveCreds } = await authStatePromise;
+  const { version } = await fetchLatestBaileysVersion();
+
+  const socket = makeWASocket({
     auth: state,
     printQRInTerminal: false,
-    syncFullHistory: false,
+    version,
   });
+
+  socket.ev.on("creds.update", saveCreds);
+  socket.ev.on("connection.update", (u) => {
+    if (u.connection === "open") saveCreds();
+  });
+
+  return socket;
 }
 
 function handleConnectionUpdate(update) {
@@ -46,9 +58,7 @@ function handleConnectionUpdate(update) {
   }
 
   if (connection === "close") {
-    const statusCode =
-      lastDisconnect?.error?.output?.statusCode ||
-      lastDisconnect?.error?.statusCode;
+    const statusCode = lastDisconnect?.error?.output?.statusCode;
     const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
     isReady = false;
@@ -71,7 +81,6 @@ export async function startBot() {
       sock = await createSocket();
 
       sock.ev.on("connection.update", handleConnectionUpdate);
-      sock.ev.on("creds.update", saveState);
 
       return sock;
     } catch (err) {
