@@ -6,6 +6,13 @@ import os from "os";
 import pkg from "whatsapp-web.js";
 import { connectMongo, getDB } from "./db.js";
 const { Client, MessageMedia, RemoteAuth } = pkg;
+// Evitar múltiples inicializaciones del bot
+if (global.botAlreadyInit) {
+  console.log("[WhatsApp Bot] Ya estaba inicializado, se ignora segundo intento");
+  return;
+}
+global.botAlreadyInit = true;
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,11 +75,12 @@ class MongoSessionStore {
     }
 
     if (!buffer) {
-      console.warn(
-        `[WhatsApp Bot] RemoteAuth.save() llamado sin data ni ZIP para clientId=${id}, se omite`
-      );
-      return;
-    }
+  console.warn(
+    `[WhatsApp Bot] ⚠ No recibí ZIP ni data, NO sobrescribo la sesión anterior`
+  );
+  return; // <- mantener sesión previa
+}
+
 
     await this.collection.updateOne(
       { clientId: id },
@@ -97,6 +105,9 @@ class MongoSessionStore {
       : doc.data?.buffer
       ? Buffer.from(doc.data.buffer)
       : Buffer.from(doc.data);
+
+      console.log(`[WhatsApp Bot] Restaurando sesión desde MongoDB → ZIP size: ${buffer?.length || 0} bytes`);
+
 
     const targetPath = outputPath || path.resolve(process.cwd(), `${id}.zip`);
     const dir = path.dirname(targetPath);
