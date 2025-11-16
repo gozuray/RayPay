@@ -1,4 +1,4 @@
-import makeWASocket, {
+import { default as makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
