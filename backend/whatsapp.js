@@ -48,7 +48,6 @@ async function createMongoAuthState(sessionId = SESSION_ID) {
     existingState = { creds: initAuthCreds(), keys: {} };
   }
 
-dev
   const writeData = async () => {
     const data = JSON.stringify(existingState, BufferJSON.replacer);
     await collection.updateOne(
@@ -146,7 +145,7 @@ async function initializeClient() {
     throw err;
   });
 
- dev
+ 
   return initPromise;
 }
 
