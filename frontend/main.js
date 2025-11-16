@@ -47,6 +47,8 @@ const advLogout = document.getElementById("advLogout");
 let checkInterval = null;
 let currentReference = null;
 let lastHistoryData = null;
+
+// Cache local del saldo disponible
 let cachedAvailableBalance = { token: "USDC", amount: 0 };
 
 // 🌐 URL del backend
@@ -72,6 +74,7 @@ toggleAdvanced.addEventListener("click", (e) => {
   }
   advanced.setAttribute("aria-hidden", String(!advanced.classList.contains("visible")));
 });
+
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
 
 // === Función auxiliar: recorta decimales ===
@@ -153,8 +156,6 @@ async function checkPaymentStatus(reference) {
       clearInterval(checkInterval);
       checkInterval = null;
       currentReference = null;
-    } else if (data.status === "pendiente") {
-      console.log("⏳ Aún pendiente.");
     }
   } catch (err) {
     console.warn("Error consultando estado:", err);
@@ -168,8 +169,10 @@ btn.addEventListener("click", async () => {
     checkInterval = null;
   }
   currentReference = null;
+
   const statusEl = document.getElementById("status");
   if (statusEl) statusEl.remove();
+
   qrContainer.innerHTML = "";
   walletAddressEl.textContent = "";
   walletAddressEl.dataset.fullAddress = "";
@@ -181,8 +184,8 @@ btn.addEventListener("click", async () => {
 
   let raw = amountInput.value.trim();
   raw = clampDecimals(raw, decimals);
-
   const amount = parseFloat(raw);
+
   if (isNaN(amount) || amount <= 0) {
     alert("⚠️ Ingresa un monto válido");
     return;
@@ -198,12 +201,8 @@ btn.addEventListener("click", async () => {
       amount: fixedAmount,
       token,
       restaurant: merchantName,
+      merchantWallet: merchantWallet || null,
     };
-
-    // 👇 agregamos la wallet del comercio (si existe)
-    if (merchantWallet) {
-      body.merchantWallet = merchantWallet;
-    }
 
     const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",
@@ -230,13 +229,12 @@ btn.addEventListener("click", async () => {
     qrContainer.classList.add("qr-glow");
     qrWrapper.classList.add("visible");
 
+    // Animación del canvas
     const qrCanvas = qrContainer.querySelector("canvas");
     if (qrCanvas) {
       const ctx = qrCanvas.getContext("2d");
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
-      qrCanvas.style.borderRadius = "12px";
-      qrCanvas.style.backgroundColor = "#0a0018";
       qrCanvas.style.opacity = "0";
       qrCanvas.style.transform = "scale(0.8)";
       setTimeout(() => {
@@ -248,6 +246,7 @@ btn.addEventListener("click", async () => {
 
     const match = data.solana_url.match(/^solana:([^?]+)/);
     const walletAddress = match ? match[1] : "desconocida";
+
     const shortAddr =
       walletAddress.length > 10
         ? `${walletAddress.slice(0, 4)}.${walletAddress.slice(-4)}`
@@ -255,15 +254,13 @@ btn.addEventListener("click", async () => {
 
     walletAddressEl.textContent = `Recibir en: ${shortAddr}`;
     walletAddressEl.dataset.fullAddress = walletAddress;
+
     document.getElementById("walletInfo").style.display = "block";
 
-    console.log("✅ QR generado:", data.solana_url);
     showPaymentStatus("⏳ Esperando pago en la red Solana...");
 
     currentReference = data.reference;
-    checkInterval = setInterval(() => {
-      checkPaymentStatus(currentReference);
-    }, 8000);
+    checkInterval = setInterval(() => checkPaymentStatus(currentReference), 8000);
   } catch (err) {
     console.error("Error generando QR:", err);
     alert(`❌ No se pudo conectar al backend.\n\n${err.message}`);
@@ -273,7 +270,8 @@ btn.addEventListener("click", async () => {
   }
 });
 
-// === HISTORIAL DESDE MONGODB ===
+// === HISTORIAL ===
+
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
 function renderHistoryLayout(innerHtml) {
@@ -290,6 +288,7 @@ function renderHistoryLayout(innerHtml) {
 
 function renderHistoryTable(data) {
   lastHistoryData = data;
+
   const transactions = data?.data || [];
   const totals = data?.totals || { SOL: 0, USDC: 0 };
   const totalCount = data?.total ?? transactions.length;
@@ -336,6 +335,7 @@ function renderHistoryTable(data) {
           tx.payer && tx.payer.length > 10
             ? `${tx.payer.slice(0, 4)}...${tx.payer.slice(-4)}`
             : tx.payer || "N/A";
+
         const pillClass = tx.status === "success" ? "success" : "pending";
         const pillLabel = tx.status === "success" ? "Completo" : tx.status;
 
@@ -382,13 +382,11 @@ function renderHistoryTable(data) {
   `);
 }
 
-// 🔄 Función global para filtrar
 window.filterTransactions = async (filter) => {
   currentFilter = filter;
   await loadTransactions(filter);
 };
 
-// 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
   renderHistoryLayout(
     '<div class="info-block"><p class="status-text">🔄 Cargando historial...</p></div>'
@@ -420,9 +418,11 @@ window.hideHistory = () => {
   historyContainer.innerHTML = "";
 };
 
+// === Crear texto para copiar historial ===
 function formatHistoryForClipboard(historyData) {
   const transactions = historyData?.data || [];
   const totals = historyData?.totals || {};
+
   const normalizedTotals = {
     USDC: Number(totals.USDC || 0),
     SOL: Number(totals.SOL || 0),
@@ -448,11 +448,12 @@ function formatHistoryForClipboard(historyData) {
   return [header, summaryLine, ...lines].filter(Boolean).join("\n");
 }
 
-// === Gestión de saldo y retiros ===
+// === Saldo y retiros ===
+
 function getStoredJson(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) || fallback;
-  } catch (e) {
+  } catch {
     return fallback;
   }
 }
@@ -471,6 +472,7 @@ function getCashoutRequests() {
 
 function computeAvailableBalance() {
   const totals = lastHistoryData?.totals || {};
+
   const completed = getCompletedCashouts().filter(
     (item) => item.merchant === merchantName
   );
@@ -478,6 +480,7 @@ function computeAvailableBalance() {
   const completedUsdc = completed
     .filter((c) => c.token === "USDC")
     .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
   const completedSol = completed
     .filter((c) => c.token === "SOL")
     .reduce((sum, c) => sum + Number(c.amount || 0), 0);
@@ -494,9 +497,7 @@ function computeAvailableBalance() {
   if (advBalancePreview) {
     const symbol = cachedAvailableBalance.token === "SOL" ? "◎" : "＄";
     const decimals = cachedAvailableBalance.token === "SOL" ? 4 : 2;
-    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(
-      decimals
-    )}`;
+    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(decimals)}`;
   }
 }
 
@@ -507,6 +508,7 @@ function markAdminAlert() {
 function sendCashoutRequest(methodLabel) {
   const requests = getCashoutRequests();
   const now = new Date();
+
   const entry = {
     merchant: merchantName,
     wallet: merchantWallet,
@@ -519,24 +521,18 @@ function sendCashoutRequest(methodLabel) {
 
   requests.push(entry);
   setCashoutRequests(requests);
+
   markAdminAlert();
+
   advBalance.textContent = `Retiro en curso (${methodLabel})`;
+
   setTimeout(() => {
     advBalance.textContent = "Saldo disponible";
   }, 1800);
 }
 
-// === Acciones dentro de la tuerca ===
+// === Menú de retiro ===
 
-// Ver historial
-advHistory.addEventListener("click", () => {
-  advanced.classList.remove("visible");
-  toggleAdvanced.classList.remove("rotating");
-  loadTransactions("all");
-  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-});
-
-// Mostrar saldo y opciones de retiro
 const balanceMenu = document.createElement("div");
 balanceMenu.className = "balance-menu";
 balanceMenu.innerHTML = `
@@ -560,16 +556,21 @@ advBalance.addEventListener("click", async (e) => {
   const rect = advBalance.getBoundingClientRect();
   balanceMenu.style.top = `${rect.bottom + window.scrollY + 8}px`;
   balanceMenu.style.left = `${rect.left + window.scrollX}px`;
+
   balanceMenu.classList.toggle("open");
 });
 
 balanceMenu.addEventListener("click", (event) => {
   const btn = event.target.closest(".balance-menu__option");
   if (!btn) return;
+
   const method = btn.dataset.method;
+
   sendCashoutRequest(method);
   balanceMenu.classList.remove("open");
 });
+
+// === Acciones bajo la tuerca ===
 
 // Copiar historial
 advCopyHistory.addEventListener("click", async () => {
@@ -594,14 +595,11 @@ advCopyHistory.addEventListener("click", async () => {
       advCopyHistory.textContent = "Copiar historial";
     }, 1500);
   } catch (error) {
-    console.error("No se pudo copiar el historial", error);
-    alert("No se pudo copiar el historial. Intenta nuevamente.");
+    alert("No se pudo copiar el historial.");
   }
 });
 
-computeAvailableBalance();
-
-// Copiar dirección desde la tuerca
+// Copiar dirección
 advCopy.addEventListener("click", () => {
   const fullAddr = walletAddressEl.dataset.fullAddress;
   if (!fullAddr) {
@@ -616,10 +614,20 @@ advCopy.addEventListener("click", () => {
   });
 });
 
-// Cerrar sesión
+// Mostrar historial
+advHistory.addEventListener("click", () => {
+  advanced.classList.remove("visible");
+  toggleAdvanced.classList.remove("rotating");
+  loadTransactions("all");
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+});
+
+// Logout
 advLogout.addEventListener("click", () => {
   localStorage.removeItem("raypay_token");
   localStorage.removeItem("raypay_user");
   window.location.href = "login.html";
 });
 
+// Inicializar saldo
+computeAvailableBalance();
