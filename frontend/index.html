@@ -37,12 +37,14 @@
 
         <button id="btnGenerate" class="btn-primary">Generar QR</button>
 
-        <div id="qrcode"></div>
-        <section id="statusContainer" class="info-block"></section>
+        <div id="qrWrapper" class="qr-wrapper" aria-live="polite">
+          <div id="qrcode" class="qr-box"></div>
+          <section id="statusContainer" class="info-block"></section>
 
-        <section id="walletInfo" class="info-block">
-          <p id="walletAddress"></p>
-        </section>
+          <section id="walletInfo" class="info-block">
+            <p id="walletAddress"></p>
+          </section>
+        </div>
 
         <!-- Panel de configuración -->
         <div id="advanced" aria-hidden="true">
@@ -54,9 +56,15 @@
 
           <p class="panel-title">Acciones rápidas</p>
           <div class="adv-actions">
+            <button class="advOption" id="advBalance" data-icon="💰">
+              Saldo disponible
+              <span id="advBalancePreview" class="balance-preview">--</span>
+            </button>
             <button class="advOption" id="advCopy" data-icon="📋">Copiar dirección</button>
             <button class="advOption" id="advHistory" data-icon="📜">Ver historial</button>
-            <button class="advOption" id="advDownload" data-icon="⬇️">Descargar CSV</button>
+            <button class="advOption" id="advCopyHistory" data-icon="📎">
+              Copiar historial
+            </button>
             <button class="advOption danger" id="advLogout" data-icon="🚪">Cerrar sesión</button>
           </div>
         </div>
