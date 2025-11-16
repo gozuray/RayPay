@@ -1,15 +1,59 @@
+import fs from "fs/promises";
 import pkg from "whatsapp-web.js";
 import qrcode from "qrcode";
 
-const { Client, LocalAuth } = pkg;
+import { connectMongo, getDB } from "./db.js";
+
+const { Client, RemoteAuth } = pkg;
 
 let isReady = false;
 let initPromise;
 let latestQrDataUrl = null;
 let latestQrAt = null;
 
+class MongoStore {
+  async getCollection() {
+    await connectMongo();
+    return getDB().collection("whatsapp_sessions");
+  }
+
+  async sessionExists({ session }) {
+    const collection = await this.getCollection();
+    const doc = await collection.findOne({ session });
+    return Boolean(doc);
+  }
+
+  async extract({ session, path }) {
+    const collection = await this.getCollection();
+    const doc = await collection.findOne({ session });
+    if (doc?.data?.buffer) {
+      await fs.writeFile(path, doc.data.buffer);
+    }
+  }
+
+  async save({ session }) {
+    const collection = await this.getCollection();
+    const zipPath = `${session}.zip`;
+    const data = await fs.readFile(zipPath);
+    await collection.updateOne(
+      { session },
+      { $set: { session, data, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  }
+
+  async delete({ session }) {
+    const collection = await this.getCollection();
+    await collection.deleteOne({ session });
+  }
+}
+
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: "raypay" }),
+  authStrategy: new RemoteAuth({
+    clientId: "raypay",
+    store: new MongoStore(),
+    backupSyncIntervalMs: 5 * 60 * 1000,
+  }),
   puppeteer: {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
