@@ -24,6 +24,7 @@ if (!token || !currentUser) {
 // === Usuario logueado ===
 const merchantWallet = currentUser?.wallet;
 const merchantName = currentUser?.name || "Restaurante";
+const merchantUsername = currentUser?.username || merchantName;
 
 // === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
@@ -528,6 +529,7 @@ function sendCashoutRequest(methodLabel) {
 
   const entry = {
     merchant: merchantName,
+    username: merchantUsername,
     wallet: merchantWallet,
     token: cachedAvailableBalance.token,
     amount: Number(cachedAvailableBalance.amount || 0),

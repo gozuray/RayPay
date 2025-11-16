@@ -425,6 +425,27 @@ button:disabled {
   background: rgba(125, 107, 255, 0.1);
 }
 
+.logout-button {
+  width: 72px;
+  height: 72px;
+  margin: 6px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #d63a42, #8f1a2c);
+  border: 1px solid #ff6b7a;
+  box-shadow: 0 0 0 1px rgba(255, 107, 122, 0.35), 0 10px 30px rgba(0, 0, 0, 0.25);
+  grid-column: 1 / -1;
+}
+
+.logout-button:hover {
+  background: linear-gradient(135deg, #ff5f73, #a02032);
+  transform: translateY(-1px);
+}
+
 /* === FOOTER === */
 footer {
   margin-top: 30px;
