@@ -179,9 +179,10 @@ function renderCashoutRequests() {
 
   requests.forEach((req, index) => {
     const amountLabel = `${req.token || "USDC"} ${Number(req.amount || 0).toFixed(2)}`;
+    const businessLabel = req.username || req.merchant || "—";
     html += `
       <tr>
-        <td>${req.merchant || "—"}</td>
+        <td>${businessLabel}</td>
         <td>${req.method || "—"}</td>
         <td>${amountLabel}</td>
         <td><span class="status-pill pending">Pendiente</span></td>
@@ -689,7 +690,8 @@ async function triggerClaim(merchantId) {
 //  Logout admin
 // =====================
 function logout() {
-  localStorage.clear();
+  localStorage.removeItem("raypay_token");
+  localStorage.removeItem("raypay_user");
   window.location.href = "login.html";
 }
 

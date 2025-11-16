@@ -214,6 +214,10 @@ button:disabled {
 }
 
 /* === HISTORIAL === */
+.history-panel {
+  margin-top: 16px;
+}
+
 .history-card {
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -316,39 +320,51 @@ button:disabled {
 }
 
 /* === BALANCE MENU (RETIROS) === */
-.balance-menu {
-  position: absolute;
-  display: none;
-  min-width: 280px;
-  padding: 14px;
-  background: rgba(12, 8, 20, 0.95);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-  z-index: 10;
+.balance-card .history-header {
+  margin-bottom: 8px;
 }
 
-.balance-menu.open {
+.balance-summary {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  padding: 8px 0 12px;
 }
 
-.balance-menu__title {
-  font-size: 0.95rem;
+.balance-amount {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.balance-token {
   color: var(--text-muted);
-  margin-bottom: 6px;
+  font-size: 0.95rem;
 }
 
-.balance-menu__option {
-  padding: 10px 12px;
-  border-radius: 10px;
+.balance-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.balance-action {
+  width: 100%;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
-.balance-menu__option:hover {
+.balance-action:hover {
   background: rgba(125, 107, 255, 0.18);
+}
+
+.balance-hint {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: 8px;
 }
 
 /* === ADVANCED PANEL === */
@@ -407,6 +423,27 @@ button:disabled {
 
 .advOption:hover {
   background: rgba(125, 107, 255, 0.1);
+}
+
+.logout-button {
+  width: 72px;
+  height: 72px;
+  margin: 6px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #d63a42, #8f1a2c);
+  border: 1px solid #ff6b7a;
+  box-shadow: 0 0 0 1px rgba(255, 107, 122, 0.35), 0 10px 30px rgba(0, 0, 0, 0.25);
+  grid-column: 1 / -1;
+}
+
+.logout-button:hover {
+  background: linear-gradient(135deg, #ff5f73, #a02032);
+  transform: translateY(-1px);
 }
 
 /* === FOOTER === */

@@ -65,13 +65,22 @@
             <button class="advOption" id="advCopyHistory" data-icon="📎">
               Copiar historial
             </button>
-            <button class="advOption danger" id="advLogout" data-icon="🚪">Cerrar sesión</button>
+            <button
+              class="advOption danger logout-button"
+              id="advLogout"
+              data-icon="🚪"
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+            >
+              ↩
+            </button>
           </div>
         </div>
       </div>
 
       <!-- Contenedor de historial -->
       <section id="historyContainer" class="history-panel"></section>
+      <section id="balanceContainer" class="history-panel"></section>
     </div>
 
     <footer>Hecho con 💜 por Ray | Solana Network</footer>

@@ -24,6 +24,7 @@ if (!token || !currentUser) {
 // === Usuario logueado ===
 const merchantWallet = currentUser?.wallet;
 const merchantName = currentUser?.name || "Restaurante";
+const merchantUsername = currentUser?.username || merchantName;
 
 // === Elementos principales ===
 const btn = document.getElementById("btnGenerate");
@@ -43,6 +44,7 @@ const advCopyHistory = document.getElementById("advCopyHistory");
 const advBalance = document.getElementById("advBalance");
 const advBalancePreview = document.getElementById("advBalancePreview");
 const advLogout = document.getElementById("advLogout");
+const balanceContainer = document.getElementById("balanceContainer");
 
 let checkInterval = null;
 let currentReference = null;
@@ -387,10 +389,14 @@ window.filterTransactions = async (filter) => {
   await loadTransactions(filter);
 };
 
-async function loadTransactions(filter = "all") {
-  renderHistoryLayout(
-    '<div class="info-block"><p class="status-text">🔄 Cargando historial...</p></div>'
-  );
+async function loadTransactions(filter = "all", options = { render: true }) {
+  const shouldRender = options.render !== false;
+
+  if (shouldRender) {
+    renderHistoryLayout(
+      '<div class="info-block"><p class="status-text">🔄 Cargando historial...</p></div>'
+    );
+  }
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
   const walletParam = merchantWallet
@@ -401,16 +407,22 @@ async function loadTransactions(filter = "all") {
   const result = await tryJson(url);
 
   if (result.ok && result.data) {
-    renderHistoryTable(result.data);
+    lastHistoryData = result.data;
     computeAvailableBalance();
+    if (shouldRender) {
+      renderHistoryTable(result.data);
+    }
   } else {
     lastHistoryData = null;
-    renderHistoryLayout(`
-      <div class="info-block">
-        <p class="status-text">❌ Error cargando transacciones</p>
-        <p class="status-text">${result.error || "Error desconocido"}</p>
-      </div>
-    `);
+    if (shouldRender) {
+      renderHistoryLayout(`
+        <div class="info-block">
+          <p class="status-text">❌ Error cargando transacciones</p>
+          <p class="status-text">${result.error || "Error desconocido"}</p>
+        </div>
+      `);
+    }
+    if (advBalancePreview) advBalancePreview.textContent = "--";
   }
 }
 
@@ -471,6 +483,12 @@ function getCashoutRequests() {
 }
 
 function computeAvailableBalance() {
+  if (!lastHistoryData) {
+    cachedAvailableBalance = { token: "USDC", amount: 0 };
+    if (advBalancePreview) advBalancePreview.textContent = "--";
+    return;
+  }
+
   const totals = lastHistoryData?.totals || {};
 
   const completed = getCompletedCashouts().filter(
@@ -511,6 +529,7 @@ function sendCashoutRequest(methodLabel) {
 
   const entry = {
     merchant: merchantName,
+    username: merchantUsername,
     wallet: merchantWallet,
     token: cachedAvailableBalance.token,
     amount: Number(cachedAvailableBalance.amount || 0),
@@ -529,46 +548,91 @@ function sendCashoutRequest(methodLabel) {
   setTimeout(() => {
     advBalance.textContent = "Saldo disponible";
   }, 1800);
+
+  if (balanceContainer) {
+    balanceContainer.innerHTML = `
+      <div class="history-card balance-card">
+        <div class="history-header">
+          <p class="history-title">Solicitud enviada</p>
+          <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
+        </div>
+        <div class="info-block">
+          <p class="status-text">Tu solicitud de retiro (${methodLabel}) fue enviada al administrador.</p>
+        </div>
+      </div>
+    `;
+  }
 }
 
-// === Menú de retiro ===
+// === Panel de retiro ===
 
-const balanceMenu = document.createElement("div");
-balanceMenu.className = "balance-menu";
-balanceMenu.innerHTML = `
-  <p class="balance-menu__title">¿Cómo deseas retirar?</p>
-  <button class="balance-menu__option" data-method="Banco">🏦 Retiro a cuenta bancaria</button>
-  <button class="balance-menu__option" data-method="Efectivo">💵 Retiro en efectivo</button>
-`;
-document.body.appendChild(balanceMenu);
+function hideBalancePanel() {
+  if (balanceContainer) balanceContainer.innerHTML = "";
+}
+
+function renderBalancePanel() {
+  if (!balanceContainer) return;
+
+  const symbol = cachedAvailableBalance.token === "SOL" ? "◎" : "＄";
+  const decimals = cachedAvailableBalance.token === "SOL" ? 4 : 2;
+
+  balanceContainer.innerHTML = `
+    <div class="history-card balance-card">
+      <div class="history-header">
+        <p class="history-title">Saldo disponible</p>
+        <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
+      </div>
+      <div class="balance-summary">
+        <p class="balance-amount">${symbol}${cachedAvailableBalance.amount.toFixed(decimals)}</p>
+        <p class="balance-token">Disponible en ${cachedAvailableBalance.token}</p>
+      </div>
+      <div class="balance-actions">
+        <button class="balance-action" data-method="Banco">🏦 Retiro a cuenta bancaria</button>
+        <button class="balance-action" data-method="Efectivo">💵 Retiro en efectivo</button>
+      </div>
+      <p class="balance-hint">Elige una opción para enviar la solicitud de retiro al administrador.</p>
+    </div>
+  `;
+}
 
 advBalance.addEventListener("click", async (e) => {
   e.preventDefault();
   advanced.classList.remove("visible");
   toggleAdvanced.classList.remove("rotating");
 
+  await loadTransactions(currentFilter, { render: false });
+  computeAvailableBalance();
   if (!lastHistoryData) {
-    await loadTransactions(currentFilter);
-  } else {
-    computeAvailableBalance();
+    if (balanceContainer) {
+      balanceContainer.innerHTML = `
+        <div class="history-card balance-card">
+          <div class="history-header">
+            <p class="history-title">Saldo disponible</p>
+            <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
+          </div>
+          <div class="info-block">
+            <p class="status-text">No pudimos cargar el saldo. Intenta nuevamente.</p>
+          </div>
+        </div>
+      `;
+    }
+    return;
   }
-
-  const rect = advBalance.getBoundingClientRect();
-  balanceMenu.style.top = `${rect.bottom + window.scrollY + 8}px`;
-  balanceMenu.style.left = `${rect.left + window.scrollX}px`;
-
-  balanceMenu.classList.toggle("open");
+  hideHistory();
+  renderBalancePanel();
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
 
-balanceMenu.addEventListener("click", (event) => {
-  const btn = event.target.closest(".balance-menu__option");
-  if (!btn) return;
+if (balanceContainer) {
+  balanceContainer.addEventListener("click", (event) => {
+    const btn = event.target.closest(".balance-action");
+    if (!btn) return;
 
-  const method = btn.dataset.method;
-
-  sendCashoutRequest(method);
-  balanceMenu.classList.remove("open");
-});
+    const method = btn.dataset.method;
+    sendCashoutRequest(method);
+    hideBalancePanel();
+  });
+}
 
 // === Acciones bajo la tuerca ===
 
@@ -618,6 +682,7 @@ advCopy.addEventListener("click", () => {
 advHistory.addEventListener("click", () => {
   advanced.classList.remove("visible");
   toggleAdvanced.classList.remove("rotating");
+  hideBalancePanel();
   loadTransactions("all");
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
