@@ -54,10 +54,31 @@ function initializeClient() {
   return initPromise;
 }
 
-async function ensureReady() {
+async function ensureReady(timeoutMs = 10000) {
   await initializeClient();
   if (isReady) return;
-  await new Promise((resolve) => client.once("ready", resolve));
+
+  const timeoutError = new Promise((_, reject) =>
+    setTimeout(() =>
+      reject(
+        new Error(
+          latestQrDataUrl
+            ? "El bot de WhatsApp no está conectado. Escanea el QR nuevamente."
+            : "El bot de WhatsApp no está listo. Inténtalo en unos segundos."
+        )
+      ),
+      timeoutMs
+    )
+  );
+
+  await Promise.race([
+    new Promise((resolve) => client.once("ready", resolve)),
+    timeoutError,
+  ]);
+
+  if (!isReady) {
+    throw new Error("El bot de WhatsApp sigue desconectado");
+  }
 }
 
 function formatPhone(number) {
