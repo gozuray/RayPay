@@ -44,6 +44,32 @@
           <section id="walletInfo" class="info-block">
             <p id="walletAddress"></p>
           </section>
+
+          <section class="info-block">
+            <label for="phoneNumber" class="input-label"
+              >Número de WhatsApp (opcional)</label
+            >
+            <div class="phone-row">
+              <select id="countryCode" aria-label="Código de país"></select>
+              <input
+                id="phoneNumber"
+                type="tel"
+                inputmode="tel"
+                placeholder="Ej: 912 345 678"
+              />
+              <button
+                id="sendReceiptBtn"
+                class="send-receipt-btn"
+                type="button"
+                title="Enviar recibo por WhatsApp"
+              >
+                ➡️
+              </button>
+            </div>
+            <p id="receiptStatus" class="status-text">
+              El recibo se enviará manualmente cuando se confirme el pago.
+            </p>
+          </section>
         </div>
 
         <!-- Panel de configuración -->

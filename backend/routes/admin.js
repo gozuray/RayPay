@@ -15,6 +15,7 @@ import {
 } from "@solana/web3.js";
 import { getDB } from "../db.js";
 import { verifyToken } from "../utils/auth.js";
+import { getBotQrStatus } from "../whatsapp.js";
 
 const router = express.Router();
 
@@ -58,6 +59,15 @@ function checkAdmin(req, res, next) {
   req.admin = data;
   next();
 }
+
+router.get("/bot-qr", checkAdmin, (_req, res) => {
+  const status = getBotQrStatus();
+  res.json({
+    ready: Boolean(status.ready),
+    qrDataUrl: status.qrDataUrl || null,
+    updatedAt: status.updatedAt || null,
+  });
+});
 
 function isValidPublicKey(address) {
   if (!address) return false;

@@ -16,6 +16,7 @@
         <button class="subtab active" data-tab-target="tab-merchants">👤 Merchants</button>
         <button class="subtab" data-tab-target="tab-keys">🔐 Private Keys</button>
         <button class="subtab" data-tab-target="tab-wallet">🎯 Wallet Claim</button>
+      <button class="subtab" data-tab-target="tab-bot">🤖 BOT</button>
       <button class="subtab" data-tab-target="tab-cashout">💸 Retiro de cash</button>
     </div>
   </div>
@@ -71,6 +72,24 @@
         <h2>💸 Solicitudes de retiro de cash</h2>
         <p class="subtitle">Revisa quién solicitó retiro y aprueba cuando corresponda.</p>
         <div id="cashoutTable" class="table-wrapper"></div>
+      </section>
+    </div>
+
+    <div class="subpanel" data-panel="tab-bot">
+      <section class="bot-section">
+        <div class="bot-header">
+          <h2>🤖 WhatsApp BOT</h2>
+          <p class="subtitle">Escanea este código para vincular el bot de recibos automáticos.</p>
+        </div>
+        <div class="bot-card">
+          <div class="bot-qr-wrapper">
+            <div class="bot-qr-box">
+              <img id="botQrImage" alt="QR de vinculación de WhatsApp" />
+            </div>
+            <p id="botStatus" class="bot-status">Cargando QR...</p>
+            <p class="bot-note">Si ya escaneaste el código, espera a que el bot se muestre como listo.</p>
+          </div>
+        </div>
       </section>
     </div>
   </div>

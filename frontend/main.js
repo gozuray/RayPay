@@ -36,6 +36,10 @@ const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
 const historyContainer = document.getElementById("historyContainer");
 const qrWrapper = document.getElementById("qrWrapper");
+const phoneInput = document.getElementById("phoneNumber");
+const countryCodeSelect = document.getElementById("countryCode");
+const sendReceiptBtn = document.getElementById("sendReceiptBtn");
+const receiptStatus = document.getElementById("receiptStatus");
 
 // Botones dentro de la tuerca
 const advCopy = document.getElementById("advCopy");
@@ -49,6 +53,7 @@ const balanceContainer = document.getElementById("balanceContainer");
 let checkInterval = null;
 let currentReference = null;
 let lastHistoryData = null;
+let lastConfirmedPayment = null;
 
 // Cache local del saldo disponible
 let availableBalances = { USDC: 0, SOL: 0 };
@@ -59,6 +64,181 @@ let balanceTokenChoice = "USDC";
 const API_URL =
   new URLSearchParams(location.search).get("api") ||
   "https://raypay-backend.onrender.com";
+
+const COUNTRY_OPTIONS = [
+  { code: "PT", name: "Portugal", dial: "+351" },
+  { code: "ES", name: "España", dial: "+34" },
+  { code: "AR", name: "Argentina", dial: "+54" },
+  { code: "BO", name: "Bolivia", dial: "+591" },
+  { code: "BR", name: "Brasil", dial: "+55" },
+  { code: "CA", name: "Canadá", dial: "+1" },
+  { code: "CL", name: "Chile", dial: "+56" },
+  { code: "CO", name: "Colombia", dial: "+57" },
+  { code: "CR", name: "Costa Rica", dial: "+506" },
+  { code: "CU", name: "Cuba", dial: "+53" },
+  { code: "DO", name: "República Dominicana", dial: "+1" },
+  { code: "EC", name: "Ecuador", dial: "+593" },
+  { code: "SV", name: "El Salvador", dial: "+503" },
+  { code: "GT", name: "Guatemala", dial: "+502" },
+  { code: "HN", name: "Honduras", dial: "+504" },
+  { code: "MX", name: "México", dial: "+52" },
+  { code: "NI", name: "Nicaragua", dial: "+505" },
+  { code: "PA", name: "Panamá", dial: "+507" },
+  { code: "PY", name: "Paraguay", dial: "+595" },
+  { code: "PE", name: "Perú", dial: "+51" },
+  { code: "PR", name: "Puerto Rico", dial: "+1" },
+  { code: "UY", name: "Uruguay", dial: "+598" },
+  { code: "VE", name: "Venezuela", dial: "+58" },
+  { code: "US", name: "Estados Unidos", dial: "+1" },
+  { code: "GB", name: "Reino Unido", dial: "+44" },
+  { code: "DE", name: "Alemania", dial: "+49" },
+  { code: "FR", name: "Francia", dial: "+33" },
+  { code: "IT", name: "Italia", dial: "+39" },
+  { code: "NL", name: "Países Bajos", dial: "+31" },
+  { code: "BE", name: "Bélgica", dial: "+32" },
+  { code: "CH", name: "Suiza", dial: "+41" },
+  { code: "SE", name: "Suecia", dial: "+46" },
+  { code: "NO", name: "Noruega", dial: "+47" },
+  { code: "DK", name: "Dinamarca", dial: "+45" },
+  { code: "FI", name: "Finlandia", dial: "+358" },
+  { code: "IE", name: "Irlanda", dial: "+353" },
+  { code: "IS", name: "Islandia", dial: "+354" },
+  { code: "GR", name: "Grecia", dial: "+30" },
+  { code: "TR", name: "Turquía", dial: "+90" },
+  { code: "RU", name: "Rusia", dial: "+7" },
+  { code: "CN", name: "China", dial: "+86" },
+  { code: "JP", name: "Japón", dial: "+81" },
+  { code: "KR", name: "Corea del Sur", dial: "+82" },
+  { code: "IN", name: "India", dial: "+91" },
+  { code: "SA", name: "Arabia Saudita", dial: "+966" },
+  { code: "AE", name: "Emiratos Árabes Unidos", dial: "+971" },
+  { code: "EG", name: "Egipto", dial: "+20" },
+  { code: "MA", name: "Marruecos", dial: "+212" },
+  { code: "ZA", name: "Sudáfrica", dial: "+27" },
+  { code: "NG", name: "Nigeria", dial: "+234" },
+  { code: "KE", name: "Kenia", dial: "+254" },
+  { code: "AU", name: "Australia", dial: "+61" },
+  { code: "NZ", name: "Nueva Zelanda", dial: "+64" },
+  { code: "PH", name: "Filipinas", dial: "+63" },
+  { code: "TH", name: "Tailandia", dial: "+66" },
+  { code: "ID", name: "Indonesia", dial: "+62" },
+  { code: "SG", name: "Singapur", dial: "+65" },
+  { code: "MY", name: "Malasia", dial: "+60" },
+  { code: "VN", name: "Vietnam", dial: "+84" },
+  { code: "HK", name: "Hong Kong", dial: "+852" },
+  { code: "TW", name: "Taiwán", dial: "+886" },
+  { code: "IL", name: "Israel", dial: "+972" },
+  { code: "PK", name: "Pakistán", dial: "+92" },
+  { code: "BD", name: "Bangladesh", dial: "+880" },
+  { code: "LK", name: "Sri Lanka", dial: "+94" },
+  { code: "NP", name: "Nepal", dial: "+977" },
+  { code: "IR", name: "Irán", dial: "+98" },
+  { code: "IQ", name: "Irak", dial: "+964" },
+  { code: "QA", name: "Qatar", dial: "+974" },
+  { code: "KW", name: "Kuwait", dial: "+965" },
+  { code: "OM", name: "Omán", dial: "+968" },
+  { code: "JO", name: "Jordania", dial: "+962" },
+  { code: "LB", name: "Líbano", dial: "+961" },
+  { code: "KR", name: "Corea", dial: "+82" },
+  { code: "UA", name: "Ucrania", dial: "+380" },
+  { code: "PL", name: "Polonia", dial: "+48" },
+  { code: "CZ", name: "Chequia", dial: "+420" },
+  { code: "HU", name: "Hungría", dial: "+36" },
+  { code: "RO", name: "Rumanía", dial: "+40" },
+  { code: "BG", name: "Bulgaria", dial: "+359" },
+  { code: "HR", name: "Croacia", dial: "+385" },
+  { code: "RS", name: "Serbia", dial: "+381" },
+  { code: "SK", name: "Eslovaquia", dial: "+421" },
+  { code: "SI", name: "Eslovenia", dial: "+386" },
+  { code: "BA", name: "Bosnia y Herzegovina", dial: "+387" },
+  { code: "AL", name: "Albania", dial: "+355" },
+  { code: "MK", name: "Macedonia del Norte", dial: "+389" },
+  { code: "LV", name: "Letonia", dial: "+371" },
+  { code: "LT", name: "Lituania", dial: "+370" },
+  { code: "EE", name: "Estonia", dial: "+372" },
+  { code: "MD", name: "Moldavia", dial: "+373" },
+  { code: "BY", name: "Bielorrusia", dial: "+375" },
+  { code: "GE", name: "Georgia", dial: "+995" },
+  { code: "AM", name: "Armenia", dial: "+374" },
+  { code: "AZ", name: "Azerbaiyán", dial: "+994" },
+  { code: "KZ", name: "Kazajistán", dial: "+7" },
+  { code: "KG", name: "Kirguistán", dial: "+996" },
+  { code: "UZ", name: "Uzbekistán", dial: "+998" },
+  { code: "TM", name: "Turkmenistán", dial: "+993" },
+  { code: "AF", name: "Afganistán", dial: "+93" },
+  { code: "MN", name: "Mongolia", dial: "+976" },
+  { code: "MM", name: "Myanmar", dial: "+95" },
+  { code: "KH", name: "Camboya", dial: "+855" },
+  { code: "LA", name: "Laos", dial: "+856" },
+  { code: "CM", name: "Camerún", dial: "+237" },
+  { code: "GH", name: "Ghana", dial: "+233" },
+  { code: "SN", name: "Senegal", dial: "+221" },
+  { code: "UG", name: "Uganda", dial: "+256" },
+  { code: "TZ", name: "Tanzania", dial: "+255" },
+  { code: "ET", name: "Etiopía", dial: "+251" },
+  { code: "DZ", name: "Argelia", dial: "+213" },
+  { code: "TN", name: "Túnez", dial: "+216" },
+  { code: "SD", name: "Sudán", dial: "+249" },
+  { code: "AO", name: "Angola", dial: "+244" },
+  { code: "MZ", name: "Mozambique", dial: "+258" },
+  { code: "ZW", name: "Zimbabue", dial: "+263" },
+  { code: "NA", name: "Namibia", dial: "+264" },
+  { code: "BW", name: "Botsuana", dial: "+267" },
+  { code: "ZM", name: "Zambia", dial: "+260" },
+  { code: "MW", name: "Malaui", dial: "+265" },
+  { code: "RW", name: "Ruanda", dial: "+250" },
+  { code: "CD", name: "Congo (RDC)", dial: "+243" },
+  { code: "CG", name: "Congo", dial: "+242" },
+  { code: "CI", name: "Costa de Marfil", dial: "+225" },
+  { code: "ML", name: "Malí", dial: "+223" },
+  { code: "GN", name: "Guinea", dial: "+224" },
+  { code: "GM", name: "Gambia", dial: "+220" },
+  { code: "BF", name: "Burkina Faso", dial: "+226" },
+  { code: "BJ", name: "Benín", dial: "+229" },
+  { code: "TG", name: "Togo", dial: "+228" },
+  { code: "LR", name: "Liberia", dial: "+231" },
+  { code: "SL", name: "Sierra Leona", dial: "+232" },
+  { code: "NE", name: "Níger", dial: "+227" },
+  { code: "SO", name: "Somalia", dial: "+252" },
+  { code: "YE", name: "Yemen", dial: "+967" },
+  { code: "SY", name: "Siria", dial: "+963" },
+  { code: "PS", name: "Palestina", dial: "+970" },
+  { code: "CY", name: "Chipre", dial: "+357" },
+  { code: "LU", name: "Luxemburgo", dial: "+352" },
+  { code: "AT", name: "Austria", dial: "+43" },
+  { code: "MT", name: "Malta", dial: "+356" },
+  { code: "LI", name: "Liechtenstein", dial: "+423" },
+  { code: "MC", name: "Mónaco", dial: "+377" },
+  { code: "AD", name: "Andorra", dial: "+376" },
+  { code: "SM", name: "San Marino", dial: "+378" },
+  { code: "VA", name: "Vaticano", dial: "+379" },
+  { code: "BB", name: "Barbados", dial: "+1" },
+  { code: "BS", name: "Bahamas", dial: "+1" },
+  { code: "JM", name: "Jamaica", dial: "+1" },
+  { code: "TT", name: "Trinidad y Tobago", dial: "+1" },
+  { code: "GD", name: "Granada", dial: "+1" },
+  { code: "AG", name: "Antigua y Barbuda", dial: "+1" },
+  { code: "BB", name: "Barbados", dial: "+1" },
+  { code: "DM", name: "Dominica", dial: "+1" },
+  { code: "LC", name: "Santa Lucía", dial: "+1" },
+  { code: "VC", name: "San Vicente y las Granadinas", dial: "+1" },
+  { code: "KN", name: "San Cristóbal y Nieves", dial: "+1" },
+  { code: "HT", name: "Haití", dial: "+509" },
+  { code: "GL", name: "Groenlandia", dial: "+299" },
+  { code: "PF", name: "Polinesia Francesa", dial: "+689" },
+  { code: "NC", name: "Nueva Caledonia", dial: "+687" },
+  { code: "FJ", name: "Fiyi", dial: "+679" },
+  { code: "WS", name: "Samoa", dial: "+685" },
+  { code: "TO", name: "Tonga", dial: "+676" },
+  { code: "GU", name: "Guam", dial: "+1" },
+  { code: "AS", name: "Samoa Americana", dial: "+1" },
+  { code: "PR", name: "Puerto Rico", dial: "+1" },
+  { code: "KY", name: "Islas Caimán", dial: "+1" },
+  { code: "BM", name: "Bermudas", dial: "+1" },
+  { code: "IM", name: "Isla de Man", dial: "+44" },
+  { code: "GG", name: "Guernsey", dial: "+44" },
+  { code: "JE", name: "Jersey", dial: "+44" },
+];
 
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
@@ -94,6 +274,66 @@ function clampDecimals(valueStr, decimals) {
     v = parts.join(".");
   }
   return v;
+}
+
+function getDialFromSelect() {
+  const currentCode = countryCodeSelect?.value || "PT";
+  return (
+    COUNTRY_OPTIONS.find((item) => item.code === currentCode)?.dial ||
+    "+351"
+  );
+}
+
+function ensurePhonePrefix(dialCode) {
+  if (!phoneInput) return;
+  const digits = phoneInput.value.replace(/\D/g, "");
+  const normalizedDial = dialCode.replace(/\D/g, "");
+
+  if (!digits || digits.startsWith(normalizedDial)) {
+    phoneInput.value = `${dialCode} `;
+    return;
+  }
+
+  if (!phoneInput.value.startsWith(dialCode)) {
+    phoneInput.value = `${dialCode} ${digits}`;
+  }
+}
+
+function populateCountrySelect() {
+  if (!countryCodeSelect) return;
+
+  countryCodeSelect.innerHTML = COUNTRY_OPTIONS.map(
+    ({ code, name, dial }) =>
+      `<option value="${code}" data-dial="${dial}">${name} (${dial})</option>`
+  ).join("");
+
+  countryCodeSelect.value = "PT";
+  ensurePhonePrefix(getDialFromSelect());
+}
+
+function buildFullPhoneNumber() {
+  const dial = getDialFromSelect();
+  const dialDigits = dial.replace(/\D/g, "");
+  const rawDigits = (phoneInput?.value || "").replace(/\D/g, "");
+  const stripped = rawDigits.startsWith(dialDigits)
+    ? rawDigits.slice(dialDigits.length)
+    : rawDigits;
+
+  return {
+    dial,
+    digits: stripped,
+    full: stripped ? `${dial}${stripped}` : null,
+  };
+}
+
+function resetReceiptFlow() {
+  lastConfirmedPayment = null;
+  if (receiptStatus) {
+    receiptStatus.textContent =
+      "El recibo se enviará manualmente cuando se confirme el pago.";
+  }
+  if (sendReceiptBtn) sendReceiptBtn.disabled = true;
+  ensurePhonePrefix(getDialFromSelect());
 }
 
 // === Limitar input en tiempo real ===
@@ -149,6 +389,11 @@ async function tryJson(url, options) {
   }
 }
 
+function updateReceiptStatus(message, disabled = false) {
+  if (receiptStatus) receiptStatus.textContent = message;
+  if (sendReceiptBtn) sendReceiptBtn.disabled = disabled;
+}
+
 // === Consultar estado del pago ===
 async function checkPaymentStatus(reference) {
   if (!reference) return;
@@ -162,10 +407,49 @@ async function checkPaymentStatus(reference) {
       ding.play();
       clearInterval(checkInterval);
       checkInterval = null;
+      lastConfirmedPayment = { reference, signature };
+      updateReceiptStatus(
+        "Pago confirmado. Envía el recibo con la flecha verde.",
+        false
+      );
       currentReference = null;
+
+      await loadTransactions(currentFilter, { render: false });
+      computeAvailableBalance();
+      if (balanceContainer?.innerHTML) {
+        renderBalancePanel();
+      }
     }
   } catch (err) {
     console.warn("Error consultando estado:", err);
+  }
+}
+
+async function sendReceiptManually() {
+  if (!lastConfirmedPayment?.reference) {
+    updateReceiptStatus("Primero confirma un pago para enviar el recibo.", true);
+    return;
+  }
+
+  const { full, digits } = buildFullPhoneNumber();
+
+  if (!digits || !full) {
+    updateReceiptStatus("Ingresa un número válido para WhatsApp.", true);
+    return;
+  }
+
+  updateReceiptStatus("Enviando recibo por WhatsApp...", true);
+
+  try {
+    await safeJsonFetch(`${API_URL}/receipt/${lastConfirmedPayment.reference}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phoneNumber: full }),
+    });
+
+    updateReceiptStatus("Recibo enviado por WhatsApp ✅", false);
+  } catch (err) {
+    updateReceiptStatus(`Error: ${err.message}`, false);
   }
 }
 
@@ -185,6 +469,7 @@ btn.addEventListener("click", async () => {
   walletAddressEl.dataset.fullAddress = "";
   qrWrapper.classList.remove("visible");
   document.getElementById("walletInfo").style.display = "none";
+  resetReceiptFlow();
 
   const token = tokenSelect ? tokenSelect.value : "USDC";
   const decimals = token === "SOL" ? 5 : 3;
@@ -210,6 +495,9 @@ btn.addEventListener("click", async () => {
       restaurant: merchantName,
       merchantWallet: merchantWallet || null,
     };
+
+    const phone = buildFullPhoneNumber();
+    if (phone.full) body.phoneNumber = phone.full;
 
     const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",
@@ -502,22 +790,12 @@ function computeAvailableBalance() {
     return;
   }
 
-  const totals = lastHistoryData?.totals || {};
+  const totals = lastHistoryData?.availableTotals || lastHistoryData?.totals || {};
 
-  const completed = getCompletedCashouts().filter(
-    (item) => item.merchant === merchantName
-  );
+  balanceTokenChoice = "USDC";
 
-  const completedUsdc = completed
-    .filter((c) => c.token === "USDC")
-    .reduce((sum, c) => sum + Number(c.amount || 0), 0);
-
-  const completedSol = completed
-    .filter((c) => c.token === "SOL")
-    .reduce((sum, c) => sum + Number(c.amount || 0), 0);
-
-  const remainingUsdc = Math.max(Number(totals.USDC || 0) - completedUsdc, 0);
-  const remainingSol = Math.max(Number(totals.SOL || 0) - completedSol, 0);
+  const remainingUsdc = Math.max(Number(totals.USDC || 0), 0);
+  const remainingSol = Math.max(Number(totals.SOL || 0), 0);
 
   availableBalances = {
     USDC: remainingUsdc,
@@ -756,6 +1034,20 @@ advLogout.addEventListener("click", () => {
   localStorage.removeItem("raypay_user");
   window.location.href = "login.html";
 });
+
+populateCountrySelect();
+if (countryCodeSelect) {
+  countryCodeSelect.addEventListener("change", () => {
+    ensurePhonePrefix(getDialFromSelect());
+  });
+}
+
+if (sendReceiptBtn) {
+  sendReceiptBtn.addEventListener("click", sendReceiptManually);
+  sendReceiptBtn.disabled = true;
+}
+
+resetReceiptFlow();
 
 // Inicializar saldo
 computeAvailableBalance();

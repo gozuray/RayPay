@@ -3,6 +3,7 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
+import { sendReceipt } from "../whatsapp.js";
 
 const router = express.Router();
 
@@ -27,8 +28,29 @@ const connection = new Connection(RPC_URL, {
 
 const toBN = (v) => new BigNumber(String(v));
 
+const buildReceiptData = (paymentDoc) => {
+  if (!paymentDoc) return null;
+
+  const hash = String(paymentDoc.signature || "");
+  const merchantWallet = String(paymentDoc.merchantWallet || "");
+
+  return {
+    amount: paymentDoc.amount,
+    date: paymentDoc.date,
+    time: paymentDoc.time,
+    finalWallet: merchantWallet.slice(-8),
+    hashStart: hash.slice(0, 6),
+    hashEnd: hash.slice(-6),
+  };
+};
+
 // Reutilizamos el objeto global
 if (!global.pendingPayments) global.pendingPayments = {};
+
+const normalizePhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits : "";
+};
 
 // Home
 router.get("/", (_req, res) => {
@@ -38,7 +60,8 @@ router.get("/", (_req, res) => {
 // 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {
   try {
-    let { amount, restaurant, token, merchantWallet } = req.body || {};
+    let { amount, restaurant, token, merchantWallet, phoneNumber } =
+      req.body || {};
 
     if (amount === undefined || isNaN(Number(amount))) {
       return res.status(400).json({ error: "Monto inválido" });
@@ -86,6 +109,7 @@ router.post("/create-payment", (req, res) => {
       created: new Date().toISOString(),
       restaurant: restaurant || "Restaurante",
       merchantWallet: walletStr, // 👉 guardamos la wallet usada en este pago
+      phoneNumber: normalizePhone(phoneNumber),
     };
 
     res.json({
@@ -198,6 +222,7 @@ router.get("/confirm/:reference", async (req, res) => {
       }
 
       delete global.pendingPayments[reference];
+
       return res.json({
         status: "pagado",
         signature: sigInfo.signature,
@@ -264,6 +289,39 @@ router.get("/transactions", async (req, res) => {
       USDC: stats.find((s) => s._id === "USDC")?.total || 0,
     };
 
+    let availableTotals = { ...totals };
+
+    try {
+      const merchant = await db
+        .collection("merchants")
+        .findOne({ wallet: merchantWallet });
+
+      if (merchant?._id) {
+        const claimSums = await db
+          .collection("claims")
+          .aggregate([
+            { $match: { merchantId: merchant._id } },
+            {
+              $group: {
+                _id: "$token",
+                total: { $sum: "$amount" },
+              },
+            },
+          ])
+          .toArray();
+
+        const claimedSol = claimSums.find((c) => c._id === "SOL")?.total || 0;
+        const claimedUsdc = claimSums.find((c) => c._id === "USDC")?.total || 0;
+
+        availableTotals = {
+          SOL: Math.max((totals.SOL || 0) - claimedSol, 0),
+          USDC: Math.max((totals.USDC || 0) - claimedUsdc, 0),
+        };
+      }
+    } catch (claimErr) {
+      console.warn("No se pudieron calcular los claims del merchant:", claimErr);
+    }
+
     res.json({
       data: rows.map((tx) => ({
         signature: tx.signature,
@@ -282,10 +340,46 @@ router.get("/transactions", async (req, res) => {
       returned: rows.length,
       filterToken: filterToken || "all",
       totals,
+      availableTotals,
     });
   } catch (e) {
     console.error("transactions:", e);
     res.status(500).json({ error: e.message, data: [], total: 0 });
+  }
+});
+
+router.post("/receipt/:reference", async (req, res) => {
+  try {
+    const { reference } = req.params;
+    const phoneNumber = normalizePhone(req.body?.phoneNumber);
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: "Número de WhatsApp inválido" });
+    }
+
+    const db = getDB();
+    const payment = await db.collection("payments").findOne({ reference });
+
+    if (!payment) {
+      return res.status(404).json({ error: "Pago no encontrado" });
+    }
+
+    if (payment.status !== "success") {
+      return res.status(400).json({ error: "El pago aún no está confirmado" });
+    }
+
+    const receiptData = buildReceiptData(payment);
+
+    if (!receiptData) {
+      return res.status(400).json({ error: "No se pudo preparar el recibo" });
+    }
+
+    await sendReceipt(phoneNumber, receiptData);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /receipt error:", err);
+    res.status(500).json({ error: "No se pudo enviar el recibo" });
   }
 });
 

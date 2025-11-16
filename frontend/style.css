@@ -101,6 +101,7 @@ h1 {
 
 /* === INPUT === */
 input[type="text"],
+input[type="tel"],
 #advanced select {
   width: 100%;
   padding: 15px;
@@ -447,6 +448,40 @@ button:disabled {
   font-size: 0.92rem;
   color: #a3f7c3;
   font-weight: 700;
+}
+
+.phone-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.6fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.phone-row select,
+.phone-row input {
+  width: 100%;
+}
+
+.send-receipt-btn {
+  background: linear-gradient(90deg, #0c9b4f, #13c370);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 10px rgba(19, 195, 112, 0.3);
+}
+
+.send-receipt-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.send-receipt-btn:not(:disabled):hover {
+  transform: translateY(-1px);
 }
 
 .advOption {
