@@ -20,9 +20,10 @@ let latestQrDataUrl = null;
 let latestQrAt = null;
 let refreshingQr = false;
 let versionPromise;
+let connecting = false;
 
 async function refreshQr(reason = "manual") {
-  if (refreshingQr) return;
+  if (refreshingQr || connecting) return;
 
   refreshingQr = true;
 
@@ -46,38 +47,61 @@ async function createMongoAuthState(sessionId = SESSION_ID) {
   const collection = await getSessionsCollection();
   const doc = await collection.findOne({ sessionId });
 
-  let existingState;
-
-  if (doc?.data) {
+  const parseSafe = (raw, fallback) => {
     try {
-      const raw = typeof doc.data === "string" ? doc.data : doc.data.toString();
-      existingState = JSON.parse(raw, BufferJSON.reviver);
+      return JSON.parse(JSON.stringify(raw ?? fallback), BufferJSON.reviver);
     } catch (err) {
       console.warn(
-        "⚠️ Sesión de WhatsApp previa incompatible, se generará una nueva",
+        "⚠️ No se pudo leer la sesión previa de WhatsApp, se regenerará",
         err?.message
       );
-      await collection.deleteOne({ sessionId });
+      return fallback;
     }
-  }
+  };
 
-  if (!existingState) {
-    existingState = { creds: initAuthCreds(), keys: {} };
-  }
+  // Migración de formato: si existe "data" (string) se parsea, si no se usan
+  // los campos separados "creds" y "keys".
+  const parsedLegacy = doc?.data
+    ? parseSafe(
+        typeof doc.data === "string" ? doc.data : doc.data.toString(),
+        null
+      )
+    : null;
+
+  const creds = parsedLegacy?.creds
+    ? parsedLegacy.creds
+    : parseSafe(doc?.creds, initAuthCreds());
+  const keys = parsedLegacy?.keys ? parsedLegacy.keys : parseSafe(doc?.keys, {});
+
+  const serialize = (value) => JSON.parse(JSON.stringify(value, BufferJSON.replacer));
+  let writeQueue = Promise.resolve();
 
   const writeData = async () => {
-    const data = JSON.stringify(existingState, BufferJSON.replacer);
-    await collection.updateOne(
-      { sessionId },
-      { $set: { sessionId, data, updatedAt: new Date() } },
-      { upsert: true }
-    );
+    writeQueue = writeQueue
+      .catch(() => {})
+      .then(async () => {
+        await collection.updateOne(
+          { sessionId },
+          {
+            $set: {
+              sessionId,
+              creds: serialize(creds),
+              keys: serialize(keys),
+              updatedAt: new Date(),
+            },
+            $unset: { data: "" },
+          },
+          { upsert: true }
+        );
+      });
+
+    return writeQueue;
   };
 
   return {
     state: {
-      creds: existingState.creds,
-      keys: makeCacheableSignalKeyStore(existingState.keys, writeData),
+      creds,
+      keys: makeCacheableSignalKeyStore(keys, writeData),
     },
     saveCreds: writeData,
     clearState: async () => collection.deleteOne({ sessionId }),
@@ -107,13 +131,16 @@ async function handleConnectionUpdate(update) {
 
   if (connection === "open") {
     isReady = true;
+    connecting = false;
     resetQr();
     console.log("✅ Cliente de WhatsApp listo (Baileys)");
+    await authState?.saveCreds?.();
     return;
   }
 
   if (connection === "close") {
     isReady = false;
+    connecting = false;
     const statusCode = lastDisconnect?.error?.output?.statusCode;
     const shouldReconnect =
       statusCode !== DisconnectReason.loggedOut &&
@@ -137,6 +164,7 @@ async function initializeClient() {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
+    connecting = true;
     authState = await createMongoAuthState();
     const { version } = await fetchLatestBaileysVersion();
 
@@ -158,6 +186,7 @@ async function initializeClient() {
 
     return socket;
   })().catch((err) => {
+    connecting = false;
     initPromise = null;
     throw err;
   });
@@ -210,7 +239,11 @@ export function getBotQrStatus() {
   if (!isReady) {
     const qrAgeMs = latestQrAt ? Date.now() - new Date(latestQrAt).getTime() : null;
 
-    if (!refreshingQr && (!latestQrDataUrl || (qrAgeMs ?? Infinity) > 20000)) {
+    if (
+      !refreshingQr &&
+      !connecting &&
+      (!latestQrDataUrl || (qrAgeMs ?? Infinity) > 20000)
+    ) {
       refreshQr(!latestQrDataUrl ? "missing-qr" : "stale-qr").catch(() => {});
     }
   }
