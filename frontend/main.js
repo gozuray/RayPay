@@ -51,7 +51,9 @@ let currentReference = null;
 let lastHistoryData = null;
 
 // Cache local del saldo disponible
+let availableBalances = { USDC: 0, SOL: 0 };
 let cachedAvailableBalance = { token: "USDC", amount: 0 };
+let balanceTokenChoice = "USDC";
 
 // 🌐 URL del backend
 const API_URL =
@@ -74,7 +76,10 @@ toggleAdvanced.addEventListener("click", (e) => {
     advanced.classList.add("visible");
     toggleAdvanced.classList.add("rotating");
   }
-  advanced.setAttribute("aria-hidden", String(!advanced.classList.contains("visible")));
+  advanced.setAttribute(
+    "aria-hidden",
+    String(!advanced.classList.contains("visible"))
+  );
 });
 
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
@@ -441,8 +446,10 @@ function formatHistoryForClipboard(historyData) {
   };
 
   const summaryParts = [];
-  if (normalizedTotals.USDC) summaryParts.push(`USDC ${normalizedTotals.USDC.toFixed(2)}`);
-  if (normalizedTotals.SOL) summaryParts.push(`SOL ${normalizedTotals.SOL.toFixed(5)}`);
+  if (normalizedTotals.USDC)
+    summaryParts.push(`USDC ${normalizedTotals.USDC.toFixed(2)}`);
+  if (normalizedTotals.SOL)
+    summaryParts.push(`SOL ${normalizedTotals.SOL.toFixed(5)}`);
 
   const lines = transactions.map((tx, index) => {
     const statusLabel = tx.status === "success" ? "OK" : tx.status || "pendiente";
@@ -451,10 +458,14 @@ function formatHistoryForClipboard(historyData) {
       payer = `${payer.slice(0, 4)}...${payer.slice(-4)}`;
     }
     const payerSuffix = payer ? ` · ${payer}` : "";
-    return `${index + 1}. ${tx.date} ${tx.time} | ${tx.token} ${tx.amount} | ${statusLabel}${payerSuffix}`;
+    return `${index + 1}. ${tx.date} ${tx.time} | ${tx.token} ${
+      tx.amount
+    } | ${statusLabel}${payerSuffix}`;
   });
 
-  const summaryLine = summaryParts.length ? `Totales: ${summaryParts.join(" | ")}` : null;
+  const summaryLine = summaryParts.length
+    ? `Totales: ${summaryParts.join(" | ")}`
+    : null;
   const header = `Historial RayPay — ${merchantName}`;
 
   return [header, summaryLine, ...lines].filter(Boolean).join("\n");
@@ -484,6 +495,8 @@ function getCashoutRequests() {
 
 function computeAvailableBalance() {
   if (!lastHistoryData) {
+    // reset total saldo si no hay historial
+    availableBalances = { USDC: 0, SOL: 0 };
     cachedAvailableBalance = { token: "USDC", amount: 0 };
     if (advBalancePreview) advBalancePreview.textContent = "--";
     return;
@@ -506,16 +519,43 @@ function computeAvailableBalance() {
   const remainingUsdc = Math.max(Number(totals.USDC || 0) - completedUsdc, 0);
   const remainingSol = Math.max(Number(totals.SOL || 0) - completedSol, 0);
 
-  if (remainingUsdc >= 0.01) {
+  availableBalances = {
+    USDC: remainingUsdc,
+    SOL: remainingSol,
+  };
+
+  cachedAvailableBalance = {
+    token: balanceTokenChoice,
+    amount: balanceTokenChoice === "SOL" ? remainingSol : remainingUsdc,
+  };
+
+  if (cachedAvailableBalance.amount <= 0 && balanceTokenChoice !== "USDC") {
     cachedAvailableBalance = { token: "USDC", amount: remainingUsdc };
-  } else {
-    cachedAvailableBalance = { token: "SOL", amount: remainingSol };
+    balanceTokenChoice = "USDC";
   }
 
   if (advBalancePreview) {
     const symbol = cachedAvailableBalance.token === "SOL" ? "◎" : "＄";
     const decimals = cachedAvailableBalance.token === "SOL" ? 4 : 2;
-    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(decimals)}`;
+    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(
+      decimals
+    )}`;
+  }
+}
+
+function updateBalanceTokenChoice(token) {
+  balanceTokenChoice = token;
+  cachedAvailableBalance = {
+    token,
+    amount: availableBalances[token] || 0,
+  };
+
+  if (advBalancePreview) {
+    const symbol = token === "SOL" ? "◎" : "＄";
+    const decimals = token === "SOL" ? 4 : 2;
+    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(
+      decimals
+    )}`;
   }
 }
 
@@ -552,7 +592,7 @@ function sendCashoutRequest(methodLabel) {
   if (balanceContainer) {
     balanceContainer.innerHTML = `
       <div class="history-card balance-card">
-        <div class="history-header">
+        <div class="history-header balance-header">
           <p class="history-title">Solicitud enviada</p>
           <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
         </div>
@@ -578,13 +618,27 @@ function renderBalancePanel() {
 
   balanceContainer.innerHTML = `
     <div class="history-card balance-card">
-      <div class="history-header">
+      <div class="history-header balance-header">
         <p class="history-title">Saldo disponible</p>
-        <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
+        <div class="balance-controls">
+          <div class="token-toggle" role="group" aria-label="Moneda de retiro">
+            <button class="token-pill ${
+              balanceTokenChoice === "USDC" ? "active" : ""
+            }" data-token="USDC">USDC</button>
+            <button class="token-pill ${
+              balanceTokenChoice === "SOL" ? "active" : ""
+            }" data-token="SOL">SOL</button>
+          </div>
+          <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
+        </div>
       </div>
       <div class="balance-summary">
-        <p class="balance-amount">${symbol}${cachedAvailableBalance.amount.toFixed(decimals)}</p>
-        <p class="balance-token">Disponible en ${cachedAvailableBalance.token}</p>
+        <p class="balance-amount">${symbol}${cachedAvailableBalance.amount.toFixed(
+    decimals
+  )}</p>
+        <p class="balance-token">Disponible en ${
+          cachedAvailableBalance.token
+        }</p>
       </div>
       <div class="balance-actions">
         <button class="balance-action" data-method="Banco">🏦 Retiro a cuenta bancaria</button>
@@ -606,7 +660,7 @@ advBalance.addEventListener("click", async (e) => {
     if (balanceContainer) {
       balanceContainer.innerHTML = `
         <div class="history-card balance-card">
-          <div class="history-header">
+          <div class="history-header balance-header">
             <p class="history-title">Saldo disponible</p>
             <button class="history-close" onclick="hideBalancePanel()" aria-label="Cerrar saldo">✕</button>
           </div>
@@ -625,6 +679,15 @@ advBalance.addEventListener("click", async (e) => {
 
 if (balanceContainer) {
   balanceContainer.addEventListener("click", (event) => {
+    // Cambiar token (USDC / SOL)
+    const tokenBtn = event.target.closest(".token-pill");
+    if (tokenBtn) {
+      updateBalanceTokenChoice(tokenBtn.dataset.token);
+      renderBalancePanel();
+      return;
+    }
+
+    // Enviar solicitud de retiro
     const btn = event.target.closest(".balance-action");
     if (!btn) return;
 
