@@ -1,133 +1,189 @@
-import fs from "fs/promises";
-import pkg from "whatsapp-web.js";
 import qrcode from "qrcode";
+import makeWASocket, {
+  BufferJSON,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  initAuthCreds,
+  makeCacheableSignalKeyStore,
+} from "@adiwajshing/baileys";
 
 import { connectMongo, getDB } from "./db.js";
 
-const { Client, RemoteAuth } = pkg;
+const SESSION_ID = "raypay";
 
-let isReady = false;
+let socket;
+let authState;
 let initPromise;
+let isReady = false;
 let latestQrDataUrl = null;
 let latestQrAt = null;
 
-class MongoStore {
-  async getCollection() {
-    await connectMongo();
-    return getDB().collection("whatsapp_sessions");
-  }
+async function getSessionsCollection() {
+  await connectMongo();
+  return getDB().collection("whatsapp_sessions");
+}
 
-  async sessionExists({ session }) {
-    const collection = await this.getCollection();
-    const doc = await collection.findOne({ session });
-    return Boolean(doc);
-  }
+async function createMongoAuthState(sessionId = SESSION_ID) {
+  const collection = await getSessionsCollection();
+  const doc = await collection.findOne({ sessionId });
 
-  async extract({ session, path }) {
-    const collection = await this.getCollection();
-    const doc = await collection.findOne({ session });
-    if (doc?.data?.buffer) {
-      await fs.writeFile(path, doc.data.buffer);
+  let existingState;
+
+  if (doc?.data) {
+    try {
+      const raw = typeof doc.data === "string" ? doc.data : doc.data.toString();
+      existingState = JSON.parse(raw, BufferJSON.reviver);
+    } catch (err) {
+      console.warn(
+        "⚠️ Sesión de WhatsApp previa incompatible, se generará una nueva",
+        err?.message
+      );
+      await collection.deleteOne({ sessionId });
     }
   }
 
-  async save({ session }) {
-    const collection = await this.getCollection();
-    const zipPath = `${session}.zip`;
-    const data = await fs.readFile(zipPath);
-    await collection.updateOne(
-      { session },
-      { $set: { session, data, updatedAt: new Date() } },
-      { upsert: true }
-    );
+  if (!existingState) {
+    existingState = { creds: initAuthCreds(), keys: {} };
   }
 
-  async delete({ session }) {
-    const collection = await this.getCollection();
-    await collection.deleteOne({ session });
+  const writeData = async () => {
+    const data = JSON.stringify(existingState, BufferJSON.replacer);
+    await collection.updateOne(
+      { sessionId },
+      { $set: { sessionId, data, updatedAt: new Date() } },
+      { upsert: true }
+    );
+  };
+
+  return {
+    state: {
+      creds: existingState.creds,
+      keys: makeCacheableSignalKeyStore(existingState.keys, writeData),
+    },
+    saveCreds: writeData,
+    clearState: async () => collection.deleteOne({ sessionId }),
+  };
+}
+
+function resetQr() {
+  latestQrDataUrl = null;
+  latestQrAt = new Date().toISOString();
+}
+
+async function handleConnectionUpdate(update) {
+  const { connection, lastDisconnect, qr } = update;
+
+  if (qr) {
+    try {
+      latestQrDataUrl = await qrcode.toDataURL(qr, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+      });
+      latestQrAt = new Date().toISOString();
+      isReady = false;
+    } catch (err) {
+      console.error("No se pudo generar el QR de WhatsApp:", err);
+    }
+  }
+
+  if (connection === "open") {
+    isReady = true;
+    resetQr();
+    console.log("✅ Cliente de WhatsApp listo (Baileys)");
+    return;
+  }
+
+  if (connection === "close") {
+    isReady = false;
+    const statusCode = lastDisconnect?.error?.output?.statusCode;
+    const shouldReconnect =
+      statusCode !== DisconnectReason.loggedOut &&
+      statusCode !== DisconnectReason.badSession;
+
+    if (!shouldReconnect) {
+      await authState?.clearState?.();
+      resetQr();
+      initPromise = null;
+      console.warn("🔌 Sesión de WhatsApp eliminada, se requiere nuevo QR");
+      return;
+    }
+
+    console.warn("⚠️ Cliente de WhatsApp desconectado, reintentando...");
+    initPromise = null;
+    setTimeout(() => initializeClient().catch(() => {}), 3000);
   }
 }
 
-const client = new Client({
-  authStrategy: new RemoteAuth({
-    clientId: "raypay",
-    store: new MongoStore(),
-    backupSyncIntervalMs: 5 * 60 * 1000,
-  }),
-  puppeteer: {
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  },
-});
+async function initializeClient() {
+  if (initPromise) return initPromise;
 
-client.on("qr", async (qr) => {
-  try {
-    latestQrDataUrl = await qrcode.toDataURL(qr, {
-      errorCorrectionLevel: "M",
-      margin: 1,
+  initPromise = (async () => {
+    authState = await createMongoAuthState();
+    const { version } = await fetchLatestBaileysVersion();
+
+    socket = makeWASocket({
+      version,
+      auth: authState.state,
+      printQRInTerminal: false,
+      browser: ["RayPay", "Render", "1.0"],
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
     });
-    latestQrAt = new Date().toISOString();
-    isReady = false;
-  } catch (err) {
-    console.error("No se pudo generar el QR de WhatsApp:", err);
-  }
-});
 
-client.on("ready", () => {
-  isReady = true;
-  latestQrDataUrl = null;
-  latestQrAt = new Date().toISOString();
-  console.log("✅ Cliente de WhatsApp listo");
-});
+    socket.ev.on("creds.update", authState.saveCreds);
+    socket.ev.on("connection.update", (update) => {
+      handleConnectionUpdate(update).catch((err) =>
+        console.error("Error manejando actualización de conexión:", err)
+      );
+    });
 
-client.on("authenticated", () => {
-  console.log("🔐 Sesión de WhatsApp autenticada");
-});
+    return socket;
+  })().catch((err) => {
+    initPromise = null;
+    throw err;
+  });
 
-client.on("disconnected", (reason) => {
-  isReady = false;
-  initPromise = null;
-  console.warn("⚠️ Cliente de WhatsApp desconectado:", reason);
-  setTimeout(() => initializeClient().catch(() => {}), 5000);
-});
-
-function initializeClient() {
-  if (!initPromise) {
-    initPromise = client.initialize();
-  }
   return initPromise;
 }
 
-async function ensureReady(timeoutMs = 10000) {
-  await initializeClient();
-  if (isReady) return;
+async function ensureReady(timeoutMs = 15000) {
+  const sock = await initializeClient();
+  if (isReady) return sock;
 
-  const timeoutError = new Promise((_, reject) =>
-    setTimeout(() =>
+  const waitForReady = new Promise((resolve) => {
+    const handler = (update) => {
+      if (update.connection === "open") {
+        sock.ev.off("connection.update", handler);
+        resolve();
+      }
+    };
+    sock.ev.on("connection.update", handler);
+  });
+
+  const timeoutError = new Promise((_, reject) => {
+    setTimeout(() => {
       reject(
         new Error(
           latestQrDataUrl
-            ? "El bot de WhatsApp no está conectado. Escanea el QR nuevamente."
+            ? "El bot de WhatsApp no está conectado. Escanea el nuevo QR."
             : "El bot de WhatsApp no está listo. Inténtalo en unos segundos."
         )
-      ),
-      timeoutMs
-    )
-  );
+      );
+    }, timeoutMs);
+  });
 
-  await Promise.race([
-    new Promise((resolve) => client.once("ready", resolve)),
-    timeoutError,
-  ]);
+  await Promise.race([waitForReady, timeoutError]);
 
   if (!isReady) {
     throw new Error("El bot de WhatsApp sigue desconectado");
   }
+
+  return sock;
 }
 
 function formatPhone(number) {
   const digits = String(number || "").replace(/\D/g, "");
-  return digits ? `${digits}@c.us` : "";
+  return digits ? `${digits}@s.whatsapp.net` : "";
 }
 
 export function getBotQrStatus() {
@@ -139,13 +195,13 @@ export function getBotQrStatus() {
 }
 
 export async function sendReceipt(number, data = {}) {
-  const chatId = formatPhone(number);
-  if (!chatId) {
+  const jid = formatPhone(number);
+  if (!jid) {
     console.warn("📵 Número de WhatsApp no proporcionado, se omite el envío");
     return { sent: false, reason: "missing_number" };
   }
 
-  await ensureReady();
+  const sock = await ensureReady();
 
   const message = `📄 *Recibo de pago - RayPay*\n\n` +
     `💰 Monto: ${data.amount ?? "--"} USDC\n` +
@@ -158,8 +214,8 @@ export async function sendReceipt(number, data = {}) {
     `Gracias por tu compra 💙`;
 
   try {
-    await client.sendMessage(chatId, message);
-    console.log(`📨 Recibo enviado a ${chatId}`);
+    await sock.sendMessage(jid, { text: message });
+    console.log(`📨 Recibo enviado a ${jid}`);
     return { sent: true };
   } catch (err) {
     console.error("❌ Error enviando recibo de WhatsApp:", err);
