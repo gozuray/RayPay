@@ -380,7 +380,9 @@ router.post("/receipt/:reference", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("POST /receipt error:", err);
-    res.status(500).json({ error: "No se pudo enviar el recibo" });
+    res
+      .status(500)
+      .json({ error: err?.message || "No se pudo enviar el recibo" });
   }
 });
 
