@@ -14,7 +14,7 @@ import {
   SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import { getDB } from "../db.js";
-import { verifyToken } from "../utils/auth.js";
+import { verifyToken as decodeToken } from "../utils/auth.js";
 import { getBotQrStatus } from "../whatsapp.js";
 
 const router = express.Router();
@@ -45,22 +45,33 @@ const SOL_CLAIM_FEE_BUFFER = Number(
 /**
  * Middleware: verifica token JWT y rol admin
  */
-function checkAdmin(req, res, next) {
+function verifyToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: "Falta token" });
 
   const token = auth.split(" ")[1];
-  const data = verifyToken(token);
+  const data = decodeToken(token);
 
-  if (!data || data.role !== "admin") {
-    return res.status(403).json({ error: "No autorizado" });
+  if (!data) {
+    return res.status(401).json({ error: "Token inválido" });
   }
 
-  req.admin = data;
+  req.user = data;
   next();
 }
 
-router.get("/bot-qr", checkAdmin, (_req, res) => {
+function checkAdmin(req, res, next) {
+  verifyToken(req, res, () => {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    req.admin = req.user;
+    next();
+  });
+}
+
+router.get("/bot-qr", verifyToken, (_req, res) => {
   const status = getBotQrStatus();
   res.json({
     ready: Boolean(status.ready),
