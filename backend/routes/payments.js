@@ -324,6 +324,7 @@ router.get("/transactions", async (req, res) => {
 
     res.json({
       data: rows.map((tx) => ({
+        reference: tx.reference,
         signature: tx.signature,
         token: tx.token,
         amount: tx.amount,

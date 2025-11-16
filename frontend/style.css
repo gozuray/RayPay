@@ -288,6 +288,16 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.transactions-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.transactions-table tbody tr:hover {
+  background: rgba(125, 107, 255, 0.08);
+  transform: translateY(-1px);
+}
+
 .transactions-table thead {
   background: rgba(125, 107, 255, 0.15);
 }
@@ -318,6 +328,69 @@ button:disabled {
 .status-pill.pending {
   background: rgba(250, 204, 21, 0.15);
   color: #fde68a;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.detail-row {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.detail-row span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.detail-row strong {
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.receipt-section {
+  margin-top: 10px;
+  border: 1px dashed rgba(125, 107, 255, 0.5);
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(125, 107, 255, 0.07);
+}
+
+.history-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.btn-secondary,
+.btn-ghost {
+  width: auto;
+  min-width: 170px;
+  padding: 12px 16px;
+}
+
+.btn-secondary {
+  background: rgba(125, 107, 255, 0.18);
+  border: 1px solid rgba(125, 107, 255, 0.4);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* === BALANCE MENU (RETIROS) === */
@@ -460,6 +533,37 @@ button:disabled {
 .phone-row select,
 .phone-row input {
   width: 100%;
+}
+
+.phone-row select {
+  appearance: none;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(125, 107, 255, 0.12));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 14px 16px;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(7, 3, 15, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.phone-row select:hover {
+  border-color: rgba(125, 107, 255, 0.65);
+  transform: translateY(-1px);
+}
+
+.phone-row select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(125, 107, 255, 0.14), 0 10px 30px rgba(7, 3, 15, 0.45);
+  border-color: rgba(125, 107, 255, 0.8);
+}
+
+.phone-row select option {
+  background: var(--bg-dark);
+  color: var(--text-main);
 }
 
 .send-receipt-btn {

@@ -239,7 +239,14 @@ function renderCashoutRequests() {
   `;
 
   requests.forEach((req, index) => {
-    const amountLabel = `${req.token || "USDC"} ${Number(req.amount || 0).toFixed(2)}`;
+    const tokenLabel = (req.token || "USDC").toUpperCase();
+    const amountValue = Number(req.amount || 0);
+    const decimals = tokenLabel === "SOL" ? 4 : 2;
+    const formattedAmount = amountValue.toLocaleString("es-ES", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+    const amountLabel = `${tokenLabel} ${formattedAmount}`;
     const businessLabel = req.username || req.merchant || "—";
     html += `
       <tr>

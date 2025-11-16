@@ -4,12 +4,20 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   const username = document.getElementById("username").value.trim();
   const password = document.getElementById("password").value.trim();
   const errorMsg = document.getElementById("errorMsg");
+  const loginStatus = document.getElementById("loginStatus");
+  const btnLogin = document.getElementById("btnLogin");
 
   if (!username || !password) {
     errorMsg.innerText = "Completa usuario y contraseña";
     errorMsg.style.display = "block";
     return;
   }
+
+  errorMsg.style.display = "none";
+  loginStatus.textContent = "Iniciando sesión...";
+  loginStatus.style.display = "block";
+  btnLogin.disabled = true;
+  btnLogin.textContent = "Ingresando...";
 
   try {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -23,6 +31,7 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
     if (!res.ok) {
       errorMsg.innerText = data.error || "Error de login";
       errorMsg.style.display = "block";
+      loginStatus.style.display = "none";
       return;
     }
 
@@ -41,5 +50,9 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   } catch (e) {
     errorMsg.innerText = "No se pudo conectar al servidor";
     errorMsg.style.display = "block";
+    loginStatus.style.display = "none";
+  } finally {
+    btnLogin.disabled = false;
+    btnLogin.textContent = "Ingresar";
   }
 });
