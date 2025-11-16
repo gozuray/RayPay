@@ -18,6 +18,9 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, ".env") });
 
+// Inicializar WhatsApp en cuanto se levante el servidor
+await import("./whatsapp.js");
+
 // ======================
 //  Crear app
 // ======================
@@ -29,15 +32,8 @@ const PORT = process.env.PORT || 3000;
 // ======================
 app.use(
   cors({
-    origin: [
-      "http://127.0.0.1:5500",   // Live Server
-      "http://localhost:5500",
-      "http://127.0.0.1:3000",   // backend local
-      "http://localhost:3000",
-      "https://raypay-1.onrender.com",       // frontend en Render
-      "https://raypay-backend.onrender.com"  // backend en Render (por si lo llamas desde ahí)
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],  // 👈 IMPORTANTE
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     optionsSuccessStatus: 204,
   })
