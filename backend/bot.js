@@ -1,7 +1,8 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import qrcode from "qrcode";
-import { Client, LocalAuth, MessageMedia } from "whatsapp-web.js";
+import pkg from "whatsapp-web.js";
+const { Client, LocalAuth, MessageMedia } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
