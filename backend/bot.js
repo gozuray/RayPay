@@ -11,6 +11,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CLIENT_ID = "raypay-bot";
+const SESSION_NAME = CLIENT_ID ? `RemoteAuth-${CLIENT_ID}` : "RemoteAuth";
+const SESSION_ZIP_PATH = path.join(process.cwd(), `${SESSION_NAME}.zip`);
 const SESSION_COLLECTION = "whatsapp_sessions";
 const LOG_COLLECTION = "whatsapp_logs";
 const LOG_TTL_DAYS = Number(process.env.LOG_TTL_DAYS || 7);
@@ -31,23 +33,46 @@ class MongoSessionStore {
     this.collection = collection;
   }
 
-  async sessionExists({ session }) {
-    const doc = await this.collection.findOne({ session });
+  #resolveId({ clientId, session }) {
+    return clientId || session;
+  }
+
+  async sessionExists({ clientId, session }) {
+    const id = this.#resolveId({ clientId, session });
+    if (!id) return false;
+    const doc = await this.collection.findOne({ clientId: id });
     return Boolean(doc);
   }
 
-  async save({ session, path: zipPath }) {
-    const data = await fs.promises.readFile(zipPath);
+  async save({ clientId, data, session, path: zipPath }) {
+    const id = this.#resolveId({ clientId, session });
+    if (!id) throw new Error("clientId is required to save session");
+
+    const buffer = data
+      ? Buffer.isBuffer(data)
+        ? data
+        : Buffer.from(data)
+      : zipPath
+        ? await fs.promises.readFile(zipPath)
+        : null;
+
+    if (!buffer) throw new Error("Session data is missing");
+
     await this.collection.updateOne(
-      { session },
-      { $set: { session, data, updatedAt: new Date() } },
+      { clientId: id },
+      { $set: { clientId: id, data: buffer, updatedAt: new Date() } },
       { upsert: true }
     );
-    await fs.promises.rm(zipPath, { force: true });
+    if (zipPath) {
+      await fs.promises.rm(zipPath, { force: true });
+    }
   }
 
-  async extract({ session, path: outputPath }) {
-    const doc = await this.collection.findOne({ session });
+  async extract({ clientId, session, path: outputPath }) {
+    const id = this.#resolveId({ clientId, session });
+    if (!id) return;
+
+    const doc = await this.collection.findOne({ clientId: id });
     if (!doc?.data) return;
 
     const buffer = Buffer.isBuffer(doc.data)
@@ -56,13 +81,20 @@ class MongoSessionStore {
         ? Buffer.from(doc.data.buffer)
         : Buffer.from(doc.data);
 
-    const dir = path.dirname(outputPath);
-    await fs.promises.mkdir(dir, { recursive: true });
-    await fs.promises.writeFile(outputPath, buffer);
+    const targetPath = outputPath || path.resolve(process.cwd(), `${id}.zip`);
+    const dir = path.dirname(targetPath);
+    if (dir && dir !== ".") {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+    await fs.promises.writeFile(targetPath, buffer);
+
+    return buffer;
   }
 
-  async delete({ session }) {
-    await this.collection.deleteOne({ session });
+  async delete({ clientId, session }) {
+    const id = this.#resolveId({ clientId, session });
+    if (!id) return;
+    await this.collection.deleteOne({ clientId: id });
   }
 }
 
@@ -70,6 +102,7 @@ let client = null;
 let isReady = false;
 let isStarting = false;
 let startPromise = null;
+let startLock = Promise.resolve();
 let qrDataUrl = null;
 let qrUpdatedAt = null;
 let sessionStorePromise = null;
@@ -145,7 +178,7 @@ async function ensureSessionStore() {
   sessionStorePromise = (async () => {
     const db = await connectMongo();
     const collection = db.collection(SESSION_COLLECTION);
-    await collection.createIndex({ session: 1 }, { unique: true });
+    await collection.createIndex({ clientId: 1 }, { unique: true });
     if (LOG_TTL_DAYS > 0) {
       await db.collection(LOG_COLLECTION).createIndex(
         { createdAt: 1 },
@@ -156,6 +189,12 @@ async function ensureSessionStore() {
   })();
 
   return sessionStorePromise;
+}
+
+async function prepareRemoteSession(store) {
+  const hasSession = await store.sessionExists({ clientId: SESSION_NAME });
+  if (!hasSession) return;
+  await store.extract({ clientId: SESSION_NAME, session: SESSION_NAME, path: SESSION_ZIP_PATH });
 }
 
 async function logEvent(type, payload = {}) {
@@ -172,8 +211,8 @@ async function logEvent(type, payload = {}) {
   }
 }
 
-async function createClient() {
-  const store = await ensureSessionStore();
+async function createClient(store) {
+  const sessionStore = store || (await ensureSessionStore());
   authFolderPath = await ensureAuthFolder();
   await cleanupOldTempAuthFolders();
 
@@ -181,7 +220,7 @@ async function createClient() {
     authStrategy: new RemoteAuth({
       dataPath: authFolderPath,
       clientId: CLIENT_ID,
-      store,
+      store: sessionStore,
       backupSyncIntervalMs: 120000,
     }),
     puppeteer: {
@@ -218,50 +257,72 @@ async function createClient() {
 }
 
 async function startBot() {
-  if (client && isReady) return client;
-  if (isStarting && startPromise) return startPromise;
+  return withStartLock(async () => {
+    if (client && isReady) return client;
+    if (isStarting && startPromise) return startPromise;
 
-  isStarting = true;
-  botState = "connecting";
-  if (!client) {
-    client = await createClient();
-  }
+    isStarting = true;
+    botState = "connecting";
+    const store = await ensureSessionStore();
+    await prepareRemoteSession(store);
+    if (!client) {
+      client = await createClient(store);
+    }
 
-  startPromise = new Promise((resolve, reject) => {
-    const onReady = () => {
-      cleanupListeners();
-      isStarting = false;
-      resolve(client);
-    };
+    startPromise = new Promise((resolve, reject) => {
+      const onReady = () => {
+        cleanupListeners();
+        isStarting = false;
+        resolve(client);
+      };
 
-    const onFailure = (err) => {
-      cleanupListeners();
-      isStarting = false;
-      botState = "error";
-      lastError = err?.message || String(err);
-      client = null;
-      reject(err instanceof Error ? err : new Error(String(err)));
-    };
+      const onFailure = (err) => {
+        cleanupListeners();
+        isStarting = false;
+        botState = "error";
+        lastError = err?.message || String(err);
+        client = null;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      };
 
-    const cleanupListeners = () => {
-      client?.removeListener("ready", onReady);
-      client?.removeListener("auth_failure", onFailure);
-      client?.removeListener("disconnected", onFailure);
-    };
+      const cleanupListeners = () => {
+        client?.removeListener("ready", onReady);
+        client?.removeListener("auth_failure", onFailure);
+        client?.removeListener("disconnected", onFailure);
+      };
 
-    client.once("ready", onReady);
-    client.once("auth_failure", onFailure);
-    client.once("disconnected", onFailure);
+      client.once("ready", onReady);
+      client.once("auth_failure", onFailure);
+      client.once("disconnected", onFailure);
 
-    client
-      .initialize()
-      .catch((err) => {
-        onFailure(err);
-        scheduleReconnect();
-      });
+      client
+        .initialize()
+        .catch((err) => {
+          onFailure(err);
+          scheduleReconnect();
+        });
+    });
+
+    return startPromise;
+  });
+}
+
+function withStartLock(fn) {
+  let release;
+  const currentLock = startLock;
+  startLock = new Promise((resolve) => {
+    release = resolve;
   });
 
-  return startPromise;
+  return currentLock
+    .catch(() => {})
+    .then(async () => {
+      try {
+        return await fn();
+      } finally {
+        release();
+      }
+    });
 }
 
 async function sendTextMessage(phone, text) {
@@ -289,7 +350,7 @@ export async function sendReceipt(phone, text, imageUrl) {
 
     const normalizedPhone = formatPhone(phone);
     console.log(
-      `${logPrefix} Enviando recibo a ${normalizedPhone} ` +
+      `${logPrefix} [Recibo] Inicio envío a ${normalizedPhone} ` +
         `(texto=${Boolean(text)}, imagen=${Boolean(imageUrl)})`
     );
 
@@ -299,12 +360,14 @@ export async function sendReceipt(phone, text, imageUrl) {
       await sendTextMessage(normalizedPhone, text);
     }
 
+    console.log(`${logPrefix} [Recibo] Envío exitoso a ${normalizedPhone}`);
+
     await logEvent("receipt:sent", {
       phone: normalizedPhone,
       hasImage: Boolean(imageUrl),
     });
   } catch (err) {
-    console.error(`${logPrefix} Error enviando recibo`, err);
+    console.error(`${logPrefix} [Recibo] Error enviando recibo`, err);
     await logEvent("receipt:error", {
       phone: formatPhone(phone),
       hasImage: Boolean(imageUrl),
