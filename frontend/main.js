@@ -37,9 +37,7 @@ const advanced = document.getElementById("advanced");
 const historyContainer = document.getElementById("historyContainer");
 const qrWrapper = document.getElementById("qrWrapper");
 const phoneInput = document.getElementById("phoneNumber");
-const countryCodeSelect = document.getElementById("countryCode");
-const sendReceiptBtn = document.getElementById("sendReceiptBtn");
-const receiptStatus = document.getElementById("receiptStatus");
+ main
 
 // Botones dentro de la tuerca
 const advCopy = document.getElementById("advCopy");
@@ -496,8 +494,7 @@ btn.addEventListener("click", async () => {
       merchantWallet: merchantWallet || null,
     };
 
-    const phone = buildFullPhoneNumber();
-    if (phone.full) body.phoneNumber = phone.full;
+main
 
     const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",

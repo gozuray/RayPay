@@ -221,8 +221,11 @@ router.get("/confirm/:reference", async (req, res) => {
         if (e.code !== 11000) console.error("Mongo insert error:", e);
       }
 
+      const phoneNumber = payment.phoneNumber;
+
       delete global.pendingPayments[reference];
 
+ main
       return res.json({
         status: "pagado",
         signature: sigInfo.signature,
