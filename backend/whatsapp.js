@@ -20,6 +20,22 @@ let latestQrAt = null;
 let refreshingQr = false;
 let versionPromise;
 
+async function refreshQr(reason = "manual") {
+  if (refreshingQr) return;
+
+  refreshingQr = true;
+
+  try {
+    console.log(`🔄 Solicitando nuevo QR de WhatsApp (${reason})`);
+    resetQr();
+    await initializeClient();
+  } catch (err) {
+    console.error("No se pudo refrescar el QR de WhatsApp:", err);
+  } finally {
+    refreshingQr = false;
+  }
+}
+
 async function getSessionsCollection() {
   await connectMongo();
   return getDB().collection("whatsapp_sessions");
