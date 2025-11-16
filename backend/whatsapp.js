@@ -1,10 +1,12 @@
 import pkg from "whatsapp-web.js";
-import qrcode from "qrcode-terminal";
+import qrcode from "qrcode";
 
 const { Client, LocalAuth } = pkg;
 
 let isReady = false;
 let initPromise;
+let latestQrDataUrl = null;
+let latestQrAt = null;
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: "raypay" }),
@@ -14,13 +16,23 @@ const client = new Client({
   },
 });
 
-client.on("qr", (qr) => {
-  console.log("📲 Escanea este QR para iniciar sesión en WhatsApp");
-  qrcode.generate(qr, { small: true });
+client.on("qr", async (qr) => {
+  try {
+    latestQrDataUrl = await qrcode.toDataURL(qr, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+    });
+    latestQrAt = new Date().toISOString();
+    isReady = false;
+  } catch (err) {
+    console.error("No se pudo generar el QR de WhatsApp:", err);
+  }
 });
 
 client.on("ready", () => {
   isReady = true;
+  latestQrDataUrl = null;
+  latestQrAt = new Date().toISOString();
   console.log("✅ Cliente de WhatsApp listo");
 });
 
@@ -51,6 +63,14 @@ async function ensureReady() {
 function formatPhone(number) {
   const digits = String(number || "").replace(/\D/g, "");
   return digits ? `${digits}@c.us` : "";
+}
+
+export function getBotQrStatus() {
+  return {
+    qrDataUrl: latestQrDataUrl,
+    updatedAt: latestQrAt,
+    ready: isReady,
+  };
 }
 
 export async function sendReceipt(number, data = {}) {
