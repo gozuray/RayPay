@@ -8,6 +8,8 @@ const { state, saveState } = useSingleFileAuthState("./whatsapp_auth.json");
 
 let sock = null;
 let qrDataUrl = null;
+let qrUpdatedAt = null;
+let isReady = false;
 let isStarting = false;
 
 export async function startBot() {
@@ -25,16 +27,21 @@ export async function startBot() {
 
       if (qr) {
         qrDataUrl = await qrcode.toDataURL(qr);
+        qrUpdatedAt = new Date().toISOString();
+        isReady = false;
         console.log("🔐 Nuevo QR generado");
       }
 
       if (connection === "open") {
         console.log("✅ Cliente de WhatsApp conectado");
         qrDataUrl = null;
+        qrUpdatedAt = null;
+        isReady = true;
       }
 
       if (connection === "close") {
         const reason = lastDisconnect?.error?.output?.statusCode;
+        isReady = false;
 
         if (reason !== DisconnectReason.loggedOut) {
           console.log("♻️ Reconectando a WhatsApp...");
@@ -55,6 +62,14 @@ export async function startBot() {
 
 export function getQrImage() {
   return qrDataUrl;
+}
+
+export function getBotQrStatus() {
+  return {
+    qrDataUrl,
+    updatedAt: qrUpdatedAt,
+    ready: isReady,
+  };
 }
 
 export async function sendReceipt(phoneNumber, receiptData) {
