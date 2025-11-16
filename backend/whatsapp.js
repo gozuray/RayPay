@@ -1,11 +1,9 @@
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  useSingleFileAuthState,
-} from "@adiwajshing/baileys";
+import baileys from "@adiwajshing/baileys";
 import qrcode from "qrcode";
 
-const { state, saveState } = useSingleFileAuthState("./whatsapp_auth.json");
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = baileys;
+
+const { state, saveCreds } = useSingleFileAuthState("./whatsapp_auth.json");
 
 let sock = null;
 let qrDataUrl = null;
@@ -15,11 +13,8 @@ let isStarting = false;
 let startPromise = null;
 
 async function createSocket() {
-  const { version } = await fetchLatestBaileysVersion();
-
   return makeWASocket({
     auth: state,
-    version,
     printQRInTerminal: false,
     syncFullHistory: false,
   });
@@ -76,7 +71,7 @@ export async function startBot() {
       sock = await createSocket();
 
       sock.ev.on("connection.update", handleConnectionUpdate);
-      sock.ev.on("creds.update", saveState);
+      sock.ev.on("creds.update", saveCreds);
 
       return sock;
     } catch (err) {
