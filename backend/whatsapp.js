@@ -41,7 +41,6 @@ export async function startBot() {
 
       if (connection === "close") {
         const reason = lastDisconnect?.error?.output?.statusCode;
-
         isReady = false;
 
         if (reason !== DisconnectReason.loggedOut) {
