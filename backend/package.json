@@ -9,10 +9,10 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
-    "@adiwajshing/baileys": "4.4.0",
     "@solana/pay": "^0.2.5",
     "@solana/web3.js": "^1.95.8",
     "archiver": "^7.0.1",
+    "baileys": "6.7.6",
     "bcryptjs": "^3.0.3",
     "bignumber.js": "^9.1.2",
     "cors": "^2.8.5",

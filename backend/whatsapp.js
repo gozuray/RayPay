@@ -6,7 +6,7 @@ import {
   fetchLatestBaileysVersion,
   initAuthCreds,
   makeCacheableSignalKeyStore,
-} from "@adiwajshing/baileys";
+} from "baileys";
 
 import { connectMongo, getDB } from "./db.js";
 
