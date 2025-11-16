@@ -3,7 +3,7 @@ import qrcode from "qrcode";
 
 const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = baileys;
 
-const { state, saveCreds } = useSingleFileAuthState("./whatsapp_auth.json");
+const { state, saveState } = useSingleFileAuthState("./whatsapp_auth.json");
 
 let sock = null;
 let qrDataUrl = null;
@@ -71,7 +71,7 @@ export async function startBot() {
       sock = await createSocket();
 
       sock.ev.on("connection.update", handleConnectionUpdate);
-      sock.ev.on("creds.update", saveCreds);
+      sock.ev.on("creds.update", saveState);
 
       return sock;
     } catch (err) {
