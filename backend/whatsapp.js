@@ -3,10 +3,12 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from "@adiwajshing/baileys";
+import fs from "fs-extra";
 import qrcode from "qrcode";
 
-const authStatePromise = useMultiFileAuthState("./whatsapp_auth");
+const AUTH_FOLDER = "./whatsapp_auth";
 
+let authStatePromise = null;
 let sock = null;
 let qrDataUrl = null;
 let qrUpdatedAt = null;
@@ -15,8 +17,23 @@ let isStarting = false;
 let startPromise = null;
 let saveCredsRef = null;
 
+async function getAuthState() {
+  if (!authStatePromise) {
+    authStatePromise = useMultiFileAuthState(AUTH_FOLDER);
+  }
+
+  return authStatePromise;
+}
+
+async function resetAuthState() {
+  authStatePromise = null;
+  saveCredsRef = null;
+  sock = null;
+  await fs.remove(AUTH_FOLDER);
+}
+
 async function createSocket() {
-  const { state, saveCreds } = await authStatePromise;
+  const { state, saveCreds } = await getAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
   const socket = makeWASocket({
@@ -44,17 +61,14 @@ async function handleConnectionUpdate(update) {
   const { connection, lastDisconnect, qr } = update;
 
   if (qr) {
-    qrcode
-      .toDataURL(qr)
-      .then((dataUrl) => {
-        qrDataUrl = dataUrl;
-        qrUpdatedAt = new Date().toISOString();
-        isReady = false;
-        console.log("🔐 Nuevo QR generado");
-      })
-      .catch((err) =>
-        console.error("❌ Error generando QR de WhatsApp:", err)
-      );
+    try {
+      qrDataUrl = await qrcode.toDataURL(qr);
+      qrUpdatedAt = new Date().toISOString();
+      isReady = false;
+      console.log("🔐 Nuevo QR generado");
+    } catch (err) {
+      console.error("❌ Error generando QR de WhatsApp:", err);
+    }
   }
 
   if (connection === "open") {
@@ -75,6 +89,10 @@ async function handleConnectionUpdate(update) {
 
     isReady = false;
 
+    if (!shouldReconnect) {
+      await resetAuthState();
+    }
+
     if (shouldReconnect) {
       console.log("♻️ Reconectando a WhatsApp...");
       await startBot();
@@ -85,6 +103,7 @@ async function handleConnectionUpdate(update) {
 }
 
 export async function startBot() {
+  if (sock && isReady) return sock;
   if (isStarting && startPromise) return startPromise;
 
   isStarting = true;
