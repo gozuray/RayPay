@@ -7,11 +7,12 @@ import pkg from "whatsapp-web.js";
 import { connectMongo, getDB } from "./db.js";
 const { Client, MessageMedia, RemoteAuth } = pkg;
 // Evitar múltiples inicializaciones del bot
+// Evitar múltiples inicializaciones del bot en entornos ESM (Render)
 if (global.botAlreadyInit) {
   console.log("[WhatsApp Bot] Ya estaba inicializado, se ignora segundo intento");
-  return;
+} else {
+  global.botAlreadyInit = true;
 }
-global.botAlreadyInit = true;
 
 
 const __filename = fileURLToPath(import.meta.url);
