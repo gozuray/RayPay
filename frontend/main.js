@@ -34,15 +34,20 @@ const tokenSelect = document.getElementById("token");
 const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
 const historyContainer = document.getElementById("historyContainer");
+const qrWrapper = document.getElementById("qrWrapper");
 
 // Botones dentro de la tuerca
 const advCopy = document.getElementById("advCopy");
 const advHistory = document.getElementById("advHistory");
-const advDownload = document.getElementById("advDownload");
+const advCopyHistory = document.getElementById("advCopyHistory");
+const advBalance = document.getElementById("advBalance");
+const advBalancePreview = document.getElementById("advBalancePreview");
 const advLogout = document.getElementById("advLogout");
 
 let checkInterval = null;
 let currentReference = null;
+let lastHistoryData = null;
+let cachedAvailableBalance = { token: "USDC", amount: 0 };
 
 // 🌐 URL del backend
 const API_URL =
@@ -168,6 +173,7 @@ btn.addEventListener("click", async () => {
   qrContainer.innerHTML = "";
   walletAddressEl.textContent = "";
   walletAddressEl.dataset.fullAddress = "";
+  qrWrapper.classList.remove("visible");
   document.getElementById("walletInfo").style.display = "none";
 
   const token = tokenSelect ? tokenSelect.value : "USDC";
@@ -222,6 +228,7 @@ btn.addEventListener("click", async () => {
 
     qrContainer.classList.remove("confirmed");
     qrContainer.classList.add("qr-glow");
+    qrWrapper.classList.add("visible");
 
     const qrCanvas = qrContainer.querySelector("canvas");
     if (qrCanvas) {
@@ -269,7 +276,20 @@ btn.addEventListener("click", async () => {
 // === HISTORIAL DESDE MONGODB ===
 let currentFilter = "all"; // "all", "SOL", "USDC"
 
+function renderHistoryLayout(innerHtml) {
+  historyContainer.innerHTML = `
+    <div class="history-card">
+      <div class="history-header">
+        <p class="history-title">Historial de cobros</p>
+        <button class="history-close" onclick="hideHistory()" aria-label="Cerrar historial">✕</button>
+      </div>
+      ${innerHtml}
+    </div>
+  `;
+}
+
 function renderHistoryTable(data) {
+  lastHistoryData = data;
   const transactions = data?.data || [];
   const totals = data?.totals || { SOL: 0, USDC: 0 };
   const totalCount = data?.total ?? transactions.length;
@@ -328,7 +348,6 @@ function renderHistoryTable(data) {
             <td>${tx.token}</td>
             <td>${tx.amount}</td>
             <td>${shortPayer}</td>
-            <td>${tx.fee}</td>
             <td>
               <span class="status-pill ${pillClass}">
                 ${pillLabel}
@@ -348,7 +367,6 @@ function renderHistoryTable(data) {
               <th>Token</th>
               <th>Monto</th>
               <th>Pagador</th>
-              <th>Fee</th>
               <th>Estado</th>
             </tr>
           </thead>
@@ -358,11 +376,10 @@ function renderHistoryTable(data) {
     `;
   }
 
-  historyContainer.innerHTML = `
+  renderHistoryLayout(`
     <div class="filters">${filterButtons}</div>
     ${tableSection}
-    <p class="history-hint">✅ Datos obtenidos desde MongoDB Cloud</p>
-  `;
+  `);
 }
 
 // 🔄 Función global para filtrar
@@ -373,8 +390,9 @@ window.filterTransactions = async (filter) => {
 
 // 🔥 Cargar transacciones
 async function loadTransactions(filter = "all") {
-  historyContainer.innerHTML =
-    '<div class="info-block"><p class="status-text">🔄 Cargando desde MongoDB...</p></div>';
+  renderHistoryLayout(
+    '<div class="info-block"><p class="status-text">🔄 Cargando historial...</p></div>'
+  );
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
   const walletParam = merchantWallet
@@ -386,14 +404,126 @@ async function loadTransactions(filter = "all") {
 
   if (result.ok && result.data) {
     renderHistoryTable(result.data);
+    computeAvailableBalance();
   } else {
-    historyContainer.innerHTML = `
+    lastHistoryData = null;
+    renderHistoryLayout(`
       <div class="info-block">
         <p class="status-text">❌ Error cargando transacciones</p>
         <p class="status-text">${result.error || "Error desconocido"}</p>
       </div>
-    `;
+    `);
   }
+}
+
+window.hideHistory = () => {
+  historyContainer.innerHTML = "";
+};
+
+function formatHistoryForClipboard(historyData) {
+  const transactions = historyData?.data || [];
+  const totals = historyData?.totals || {};
+  const normalizedTotals = {
+    USDC: Number(totals.USDC || 0),
+    SOL: Number(totals.SOL || 0),
+  };
+
+  const summaryParts = [];
+  if (normalizedTotals.USDC) summaryParts.push(`USDC ${normalizedTotals.USDC.toFixed(2)}`);
+  if (normalizedTotals.SOL) summaryParts.push(`SOL ${normalizedTotals.SOL.toFixed(5)}`);
+
+  const lines = transactions.map((tx, index) => {
+    const statusLabel = tx.status === "success" ? "OK" : tx.status || "pendiente";
+    let payer = tx.payer || "";
+    if (payer.length > 10) {
+      payer = `${payer.slice(0, 4)}...${payer.slice(-4)}`;
+    }
+    const payerSuffix = payer ? ` · ${payer}` : "";
+    return `${index + 1}. ${tx.date} ${tx.time} | ${tx.token} ${tx.amount} | ${statusLabel}${payerSuffix}`;
+  });
+
+  const summaryLine = summaryParts.length ? `Totales: ${summaryParts.join(" | ")}` : null;
+  const header = `Historial RayPay — ${merchantName}`;
+
+  return [header, summaryLine, ...lines].filter(Boolean).join("\n");
+}
+
+// === Gestión de saldo y retiros ===
+function getStoredJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function getCompletedCashouts() {
+  return getStoredJson("raypay_cashout_completed", []);
+}
+
+function setCashoutRequests(list) {
+  localStorage.setItem("raypay_cashout_requests", JSON.stringify(list));
+}
+
+function getCashoutRequests() {
+  return getStoredJson("raypay_cashout_requests", []);
+}
+
+function computeAvailableBalance() {
+  const totals = lastHistoryData?.totals || {};
+  const completed = getCompletedCashouts().filter(
+    (item) => item.merchant === merchantName
+  );
+
+  const completedUsdc = completed
+    .filter((c) => c.token === "USDC")
+    .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const completedSol = completed
+    .filter((c) => c.token === "SOL")
+    .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+  const remainingUsdc = Math.max(Number(totals.USDC || 0) - completedUsdc, 0);
+  const remainingSol = Math.max(Number(totals.SOL || 0) - completedSol, 0);
+
+  if (remainingUsdc >= 0.01) {
+    cachedAvailableBalance = { token: "USDC", amount: remainingUsdc };
+  } else {
+    cachedAvailableBalance = { token: "SOL", amount: remainingSol };
+  }
+
+  if (advBalancePreview) {
+    const symbol = cachedAvailableBalance.token === "SOL" ? "◎" : "＄";
+    const decimals = cachedAvailableBalance.token === "SOL" ? 4 : 2;
+    advBalancePreview.textContent = `${symbol}${cachedAvailableBalance.amount.toFixed(
+      decimals
+    )}`;
+  }
+}
+
+function markAdminAlert() {
+  localStorage.setItem("raypay_cashout_alert", "pending");
+}
+
+function sendCashoutRequest(methodLabel) {
+  const requests = getCashoutRequests();
+  const now = new Date();
+  const entry = {
+    merchant: merchantName,
+    wallet: merchantWallet,
+    token: cachedAvailableBalance.token,
+    amount: Number(cachedAvailableBalance.amount || 0),
+    method: methodLabel,
+    status: "pendiente",
+    requestedAt: now.toISOString(),
+  };
+
+  requests.push(entry);
+  setCashoutRequests(requests);
+  markAdminAlert();
+  advBalance.textContent = `Retiro en curso (${methodLabel})`;
+  setTimeout(() => {
+    advBalance.textContent = "Saldo disponible";
+  }, 1800);
 }
 
 // === Acciones dentro de la tuerca ===
@@ -406,14 +536,70 @@ advHistory.addEventListener("click", () => {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
 
-// Descargar CSV
-advDownload.addEventListener("click", () => {
-  let url = `${API_URL}/transactions/download`;
-  if (merchantWallet) {
-    url += `?wallet=${encodeURIComponent(merchantWallet)}`;
+// Mostrar saldo y opciones de retiro
+const balanceMenu = document.createElement("div");
+balanceMenu.className = "balance-menu";
+balanceMenu.innerHTML = `
+  <p class="balance-menu__title">¿Cómo deseas retirar?</p>
+  <button class="balance-menu__option" data-method="Banco">🏦 Retiro a cuenta bancaria</button>
+  <button class="balance-menu__option" data-method="Efectivo">💵 Retiro en efectivo</button>
+`;
+document.body.appendChild(balanceMenu);
+
+advBalance.addEventListener("click", async (e) => {
+  e.preventDefault();
+  advanced.classList.remove("visible");
+  toggleAdvanced.classList.remove("rotating");
+
+  if (!lastHistoryData) {
+    await loadTransactions(currentFilter);
+  } else {
+    computeAvailableBalance();
   }
-  window.open(url, "_blank");
+
+  const rect = advBalance.getBoundingClientRect();
+  balanceMenu.style.top = `${rect.bottom + window.scrollY + 8}px`;
+  balanceMenu.style.left = `${rect.left + window.scrollX}px`;
+  balanceMenu.classList.toggle("open");
 });
+
+balanceMenu.addEventListener("click", (event) => {
+  const btn = event.target.closest(".balance-menu__option");
+  if (!btn) return;
+  const method = btn.dataset.method;
+  sendCashoutRequest(method);
+  balanceMenu.classList.remove("open");
+});
+
+// Copiar historial
+advCopyHistory.addEventListener("click", async () => {
+  if (!lastHistoryData) {
+    await loadTransactions(currentFilter);
+  }
+
+  const hasEntries = lastHistoryData?.data?.length;
+  if (!hasEntries) {
+    advCopyHistory.textContent = "Sin datos para copiar";
+    setTimeout(() => {
+      advCopyHistory.textContent = "Copiar historial";
+    }, 1500);
+    return;
+  }
+
+  try {
+    const formatted = formatHistoryForClipboard(lastHistoryData);
+    await navigator.clipboard.writeText(formatted);
+    advCopyHistory.textContent = "Historial copiado ✅";
+    setTimeout(() => {
+      advCopyHistory.textContent = "Copiar historial";
+    }, 1500);
+  } catch (error) {
+    console.error("No se pudo copiar el historial", error);
+    alert("No se pudo copiar el historial. Intenta nuevamente.");
+  }
+});
+
+computeAvailableBalance();
 
 // Copiar dirección desde la tuerca
 advCopy.addEventListener("click", () => {

@@ -12,13 +12,15 @@
   <div class="sidebar">
     <h2>⚙️ Admin</h2>
     <ul>
-      <li class="active">Merchants</li>
+      <li class="active" data-tab-target="tab-merchants">Merchants</li>
+      <li id="sidebarCashout" data-tab-target="tab-cashout">Retiro de cash</li>
     </ul>
 
     <div class="subtabs">
       <button class="subtab active" data-tab-target="tab-merchants">👤 Merchants</button>
       <button class="subtab" data-tab-target="tab-keys">🔐 Private Keys</button>
       <button class="subtab" data-tab-target="tab-wallet">🎯 Wallet Claim</button>
+      <button class="subtab" data-tab-target="tab-cashout">💸 Retiro de cash</button>
     </div>
   </div>
 
@@ -65,6 +67,14 @@
           <button class="btn-primary" onclick="saveDestinationWallet()">Guardar destino</button>
         </div>
         <p id="destinationStatus" class="destination-status"></p>
+      </section>
+    </div>
+
+    <div class="subpanel" data-panel="tab-cashout">
+      <section class="cashout-section">
+        <h2>💸 Solicitudes de retiro de cash</h2>
+        <p class="subtitle">Revisa quién solicitó retiro y aprueba cuando corresponda.</p>
+        <div id="cashoutTable" class="table-wrapper"></div>
       </section>
     </div>
   </div>
