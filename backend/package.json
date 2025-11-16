@@ -18,11 +18,11 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "fs-extra": "^11.2.0",
+    "@adiwajshing/baileys": "^5.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.12.0",
     "qrcode": "^1.5.4",
-    "unzipper": "^0.11.4",
-    "whatsapp-web.js": "^1.26.0"
+    "unzipper": "^0.11.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
