@@ -286,19 +286,18 @@ function getDialFromSelect(selectEl = countryCodeSelect) {
 }
 
 
-function ensurePhonePrefix(dialCode) {
-  if (!phoneInput) return;
+function ensurePhonePrefix(dialCode, input = phoneInput) {
+  if (!input) return;
 
   // El código de país ya está definido en el selector, el input solo debe contener
   // el número local. Si el usuario pegó el prefijo, lo eliminamos.
-  const digits = phoneInput.value.replace(/\D/g, "");
+  const digits = input.value.replace(/\D/g, "");
   const normalizedDial = dialCode.replace(/\D/g, "");
   const withoutDial = digits.startsWith(normalizedDial)
     ? digits.slice(normalizedDial.length)
     : digits;
 
-  phoneInput.value = withoutDial;
- dev
+  input.value = withoutDial;
 }
 
 function populateCountrySelect(selectEl = countryCodeSelect, inputEl = phoneInput) {
