@@ -36,6 +36,7 @@ const toggleAdvanced = document.getElementById("toggleAdvanced");
 const advanced = document.getElementById("advanced");
 const historyContainer = document.getElementById("historyContainer");
 const qrWrapper = document.getElementById("qrWrapper");
+const phoneInput = document.getElementById("phoneNumber");
 
 // Botones dentro de la tuerca
 const advCopy = document.getElementById("advCopy");
@@ -210,6 +211,9 @@ btn.addEventListener("click", async () => {
       restaurant: merchantName,
       merchantWallet: merchantWallet || null,
     };
+
+    const phoneNumber = phoneInput?.value.trim();
+    if (phoneNumber) body.phoneNumber = phoneNumber;
 
     const data = await safeJsonFetch(`${API_URL}/create-payment`, {
       method: "POST",
