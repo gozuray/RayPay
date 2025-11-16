@@ -44,27 +44,44 @@ class MongoSessionStore {
     return Boolean(doc);
   }
 
+  // 🔧 Corregido: ya no revienta si RemoteAuth llama sin data ni path
   async save({ clientId, data, session, path: zipPath }) {
     const id = this.#resolveId({ clientId, session });
-    if (!id) throw new Error("clientId is required to save session");
+    if (!id) {
+      console.warn("[WhatsApp Bot] RemoteAuth.save() sin clientId/session válido, se omite");
+      return;
+    }
 
-    const buffer = data
-      ? Buffer.isBuffer(data)
-        ? data
-        : Buffer.from(data)
-      : zipPath
-        ? await fs.promises.readFile(zipPath)
-        : null;
+    let buffer = null;
 
-    if (!buffer) throw new Error("Session data is missing");
+    if (data) {
+      buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    } else if (zipPath) {
+      try {
+        buffer = await fs.promises.readFile(zipPath);
+      } catch (err) {
+        console.warn(
+          `[WhatsApp Bot] No se pudo leer ZIP de sesión desde ${zipPath}:`,
+          err.message
+        );
+      }
+    }
+
+    if (!buffer) {
+      console.warn(
+        `[WhatsApp Bot] RemoteAuth.save() llamado sin data ni ZIP para clientId=${id}, se omite`
+      );
+      return;
+    }
 
     await this.collection.updateOne(
       { clientId: id },
       { $set: { clientId: id, data: buffer, updatedAt: new Date() } },
       { upsert: true }
     );
+
     if (zipPath) {
-      await fs.promises.rm(zipPath, { force: true });
+      await fs.promises.rm(zipPath, { force: true }).catch(() => {});
     }
   }
 
@@ -78,8 +95,8 @@ class MongoSessionStore {
     const buffer = Buffer.isBuffer(doc.data)
       ? doc.data
       : doc.data?.buffer
-        ? Buffer.from(doc.data.buffer)
-        : Buffer.from(doc.data);
+      ? Buffer.from(doc.data.buffer)
+      : Buffer.from(doc.data);
 
     const targetPath = outputPath || path.resolve(process.cwd(), `${id}.zip`);
     const dir = path.dirname(targetPath);
@@ -194,7 +211,11 @@ async function ensureSessionStore() {
 async function prepareRemoteSession(store) {
   const hasSession = await store.sessionExists({ clientId: SESSION_NAME });
   if (!hasSession) return;
-  await store.extract({ clientId: SESSION_NAME, session: SESSION_NAME, path: SESSION_ZIP_PATH });
+  await store.extract({
+    clientId: SESSION_NAME,
+    session: SESSION_NAME,
+    path: SESSION_ZIP_PATH,
+  });
 }
 
 async function logEvent(type, payload = {}) {
