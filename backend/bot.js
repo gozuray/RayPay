@@ -14,7 +14,8 @@ const BOT_SINGLETON_KEY = Symbol.for("raypay.whatsapp.bot.singleton");
 
 function createSingleton() {
   const CLIENT_ID = "raypay-bot";
-  const SESSION_NAME = CLIENT_ID ? `RemoteAuth-${CLIENT_ID}` : "RemoteAuth";
+  // Usar el mismo identificador que RemoteAuth para la sesión
+  const SESSION_NAME = CLIENT_ID;
   const SESSION_ZIP_PATH = path.join(process.cwd(), `${SESSION_NAME}.zip`);
   const SESSION_COLLECTION = "whatsapp_sessions";
   const LOG_COLLECTION = "whatsapp_logs";
@@ -35,15 +36,13 @@ function createSingleton() {
   let lastError = null;
 
   async function ensureAuthFolder() {
-    if (authFolderPromise) return authFolderPromise;
-    authFolderPromise = fs.promises
-      .mkdtemp(path.join(os.tmpdir(), `${CLIENT_ID}_`))
-      .then((folder) => {
-        authFolderPath = folder;
-        return folder;
-      });
-    return authFolderPromise;
+  if (!authFolderPath) {
+    authFolderPath = "/var/data/whatsapp-session";
+    await fs.promises.mkdir(authFolderPath, { recursive: true });
   }
+  return authFolderPath;
+}
+
 
   class MongoSessionStore {
     constructor(collection) {
@@ -116,7 +115,9 @@ function createSingleton() {
         : Buffer.from(doc.data);
 
       console.log(
-        `${logPrefix} Restaurando sesión desde MongoDB → ZIP size: ${buffer?.length || 0} bytes`
+        `${logPrefix} Restaurando sesión desde MongoDB → ZIP size: ${
+          buffer?.length || 0
+        } bytes`
       );
 
       const targetPath = outputPath || path.resolve(process.cwd(), `${id}.zip`);
@@ -144,10 +145,12 @@ function createSingleton() {
       const collection = db.collection(SESSION_COLLECTION);
       await collection.createIndex({ clientId: 1 }, { unique: true });
       if (LOG_TTL_DAYS > 0) {
-        await db.collection(LOG_COLLECTION).createIndex(
-          { createdAt: 1 },
-          { expireAfterSeconds: LOG_TTL_DAYS * 24 * 60 * 60 }
-        );
+        await db
+          .collection(LOG_COLLECTION)
+          .createIndex(
+            { createdAt: 1 },
+            { expireAfterSeconds: LOG_TTL_DAYS * 24 * 60 * 60 }
+          );
       }
       return new MongoSessionStore(collection);
     })();
@@ -326,7 +329,9 @@ function createSingleton() {
     );
     newClient.on("auth_failure", handleAuthFailure);
     newClient.on("disconnected", (reason) => {
-      console.warn(`${logPrefix} Cliente desconectado (${reason || "sin razón"})`);
+      console.warn(
+        `${logPrefix} Cliente desconectado (${reason || "sin razón"})`
+      );
       cleanupTempAuthFolder();
       scheduleReconnect();
     });
@@ -477,7 +482,8 @@ function createSingleton() {
 }
 
 const singleton =
-  globalThis[BOT_SINGLETON_KEY] || (globalThis[BOT_SINGLETON_KEY] = createSingleton());
+  globalThis[BOT_SINGLETON_KEY] ||
+  (globalThis[BOT_SINGLETON_KEY] = createSingleton());
 
 export const startBot = singleton.startBot;
 export const sendReceipt = singleton.sendReceipt;
