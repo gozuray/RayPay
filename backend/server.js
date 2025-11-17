@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 // Inicializar WhatsApp en cuanto se levante el servidor
-import "./bot.js";
+// import "./bot.js"; desactivado temporalmente para correrlo de manera independiente
 
 // ======================
 //  Crear app
