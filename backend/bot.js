@@ -37,11 +37,12 @@ function createSingleton() {
 
   async function ensureAuthFolder() {
   if (!authFolderPath) {
-   authFolderPath = "/opt/data/whatsapp-session";
+    authFolderPath = "/tmp/whatsapp-session";
     await fs.promises.mkdir(authFolderPath, { recursive: true });
   }
   return authFolderPath;
 }
+
 
 
   class MongoSessionStore {
