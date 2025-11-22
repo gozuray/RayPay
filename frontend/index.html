@@ -82,6 +82,10 @@
 
           <p class="panel-title">Acciones rápidas</p>
           <div class="adv-actions">
+            <button class="advOption" id="advWallet" data-icon="👛">
+              Wallet registrada
+              <span id="advWalletBadge" class="wallet-badge">Registrar</span>
+            </button>
             <button class="advOption" id="advBalance" data-icon="💰">
               Saldo disponible
               <span id="advBalancePreview" class="balance-preview">--</span>
@@ -102,10 +106,10 @@
             </button>
           </div>
 
-          <div class="withdraw-config">
+          <div id="walletCard" class="withdraw-config wallet-card">
             <div class="withdraw-header">
-              <p class="panel-title">Wallet de retiro</p>
-              <p class="network-hint">La cadena debe ser en la red de Solana.</p>
+              <p class="panel-title">Wallet registrada</p>
+              <p class="network-hint">Los cobros se envían automáticamente a esta wallet (red Solana).</p>
             </div>
             <div class="withdraw-row">
               <input

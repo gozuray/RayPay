@@ -376,39 +376,6 @@ router.get("/transactions", async (req, res) => {
       USDC: stats.find((s) => s._id === "USDC")?.total || 0,
     };
 
-    let availableTotals = { ...totals };
-
-    try {
-      const merchant = await db
-        .collection("merchants")
-        .findOne({ wallet: merchantWallet });
-
-      if (merchant?._id) {
-        const claimSums = await db
-          .collection("claims")
-          .aggregate([
-            { $match: { merchantId: merchant._id } },
-            {
-              $group: {
-                _id: "$token",
-                total: { $sum: "$amount" },
-              },
-            },
-          ])
-          .toArray();
-
-        const claimedSol = claimSums.find((c) => c._id === "SOL")?.total || 0;
-        const claimedUsdc = claimSums.find((c) => c._id === "USDC")?.total || 0;
-
-        availableTotals = {
-          SOL: Math.max((totals.SOL || 0) - claimedSol, 0),
-          USDC: Math.max((totals.USDC || 0) - claimedUsdc, 0),
-        };
-      }
-    } catch (claimErr) {
-      console.warn("No se pudieron calcular los claims del merchant:", claimErr);
-    }
-
     res.json({
       data: rows.map((tx) => ({
         reference: tx.reference,
@@ -428,7 +395,7 @@ router.get("/transactions", async (req, res) => {
       returned: rows.length,
       filterToken: filterToken || "all",
       totals,
-      availableTotals,
+      availableTotals: totals,
     });
   } catch (e) {
     console.error("transactions:", e);

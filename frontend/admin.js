@@ -14,9 +14,6 @@ if (!user || user.role !== "admin") {
 // Referencias al DOM
 const tableContainer = document.getElementById("merchantsTable");
 const keysContainer = document.getElementById("keysTable");
-const destinationMerchantSelect = document.getElementById("destinationMerchantSelect");
-const destinationWalletInput = document.getElementById("destinationWalletInput");
-const destinationStatus = document.getElementById("destinationStatus");
 const cashoutTable = document.getElementById("cashoutTable");
 const sidebarCashout = document.getElementById("sidebarCashout");
 const tabButtons = document.querySelectorAll("[data-tab-target]");
@@ -29,6 +26,10 @@ const formPassword = document.getElementById("formPassword");
 const formWalletMode = document.getElementById("formWalletMode");
 const manualWalletWrapper = document.getElementById("manualWalletWrapper");
 const saveBtn = document.getElementById("saveBtn");
+const historyOverlay = document.getElementById("historyOverlay");
+const historyContent = document.getElementById("historyContent");
+const historyTitle = document.getElementById("historyTitle");
+const PUBLIC_API = "https://raypay-backend.onrender.com";
 
 // Variables globales
 let editingID = null;
@@ -132,30 +133,6 @@ function clearCashoutAlert() {
   updateCashoutIndicator();
 }
 
-function setDestinationStatus(message, isError = false) {
-  if (!destinationStatus) return;
-  destinationStatus.textContent = message || "";
-  destinationStatus.style.color = isError ? "#ff8a8a" : "#7af0d2";
-}
-
-// Sincroniza input de wallet destino con merchant seleccionado
-function syncDestinationWalletInput() {
-  if (!destinationMerchantSelect || !destinationWalletInput) return;
-
-  const targetId = destinationMerchantSelect.value;
-  const merchant = merchantsCache.find((m) => m._id === targetId);
-
-  destinationWalletInput.value = merchant?.destinationWallet ?? "";
-
-  if (merchant) {
-    setDestinationStatus(
-      merchant.destinationWallet
-        ? `Destino actual: ${merchant.destinationWallet}`
-        : "Sin destino configurado"
-    );
-  }
-}
-
 function renderCashoutRequests() {
   if (!cashoutTable) return;
   const requests = getCashoutRequests();
@@ -221,48 +198,10 @@ window.approveCashout = (rowIndex) => {
   renderCashoutRequests();
 };
 
-// Actualiza opciones del select + mantiene selección
-function updateDestinationForm(preserveId) {
-  if (!destinationMerchantSelect || !destinationWalletInput) return;
-
-  if (!merchantsCache.length) {
-    destinationMerchantSelect.innerHTML =
-      '<option value="">No hay merchants disponibles</option>';
-    destinationMerchantSelect.disabled = true;
-    destinationWalletInput.disabled = true;
-    destinationWalletInput.value = "";
-    setDestinationStatus("Aún no hay merchants para configurar");
-    return;
-  }
-
-  destinationMerchantSelect.disabled = false;
-  destinationWalletInput.disabled = false;
-
-  const options = merchantsCache
-    .map((m) => `<option value="${m._id}">${m.username}</option>`)
-    .join("");
-
-  destinationMerchantSelect.innerHTML = options;
-
-  const desiredId =
-    preserveId && merchantsCache.some((m) => m._id === preserveId)
-      ? preserveId
-      : merchantsCache[0]._id;
-
-  destinationMerchantSelect.value = desiredId;
-  syncDestinationWalletInput();
-}
-
-if (destinationMerchantSelect) {
-  destinationMerchantSelect.addEventListener("change", syncDestinationWalletInput);
-}
-
 // =====================
 //  Cargar merchants
 // =====================
 async function loadMerchants(showLoadingMessage = false) {
-  const previousSelection = destinationMerchantSelect?.value || "";
-
   if (showLoadingMessage && tableContainer) {
     tableContainer.innerHTML =
       '<p class="table-status">Consultando historial de pagos en la base de datos...</p>';
@@ -288,7 +227,6 @@ async function loadMerchants(showLoadingMessage = false) {
     if (!merchants.length) {
       tableContainer.innerHTML =
         '<p class="table-status">No hay merchants registrados aún.</p>';
-      updateDestinationForm(previousSelection);
       return;
     }
 
@@ -296,29 +234,30 @@ async function loadMerchants(showLoadingMessage = false) {
       <table class="table">
         <tr>
           <th>Usuario</th>
-          <th>Wallet</th>
-          <th>Saldo disponible</th>
+          <th>Wallet registrada</th>
+          <th>Total recibido</th>
           <th>Acciones</th>
         </tr>
     `;
 
     merchants.forEach((m) => {
-      const solBalance = formatBalance(m.balances?.sol ?? 0, 4);
-      const usdcBalance = formatBalance(m.balances?.usdc ?? 0, 2);
-
-      const disableClaim = !m.destinationWallet;
-      const claimTitle = disableClaim
-        ? "Configura una wallet destino para habilitar claim"
-        : `Enviar fondos a ${m.destinationWallet}`;
+      const solTotal = formatBalance(m.receivedTotals?.sol ?? 0, 4);
+      const usdcTotal = formatBalance(m.receivedTotals?.usdc ?? 0, 2);
+      const walletForStats = m.registeredWallet || m.wallet || "";
+      const shortWallet = walletForStats
+        ? walletForStats.length > 14
+          ? `${walletForStats.slice(0, 6)}...${walletForStats.slice(-6)}`
+          : walletForStats
+        : "—";
 
       html += `
         <tr>
           <td>${m.username ?? "undefined"}</td>
-          <td>${m.wallet || "-"}</td>
+          <td class="mono-text" title="${walletForStats || "Sin wallet"}">${shortWallet}</td>
           <td>
             <div class="balance-pill">
-              <span><strong>SOL:</strong> ${solBalance}</span>
-              <span><strong>USDC:</strong> ${usdcBalance}</span>
+              <span><strong>SOL:</strong> ${solTotal}</span>
+              <span><strong>USDC:</strong> ${usdcTotal}</span>
             </div>
           </td>
           <td>
@@ -332,11 +271,8 @@ async function loadMerchants(showLoadingMessage = false) {
                 Eliminar
               </button>
 
-              <button class="btn-claim"
-                title="${claimTitle}"
-                ${disableClaim ? "disabled" : ""}
-                onclick="triggerClaim('${m._id}')">
-                Claim
+              <button class="btn-secondary" onclick="openHistory('${m._id}')">
+                Historial
               </button>
             </div>
           </td>
@@ -346,8 +282,6 @@ async function loadMerchants(showLoadingMessage = false) {
 
     html += "</table>";
     tableContainer.innerHTML = html;
-
-    updateDestinationForm(previousSelection);
   } catch (e) {
     console.error("loadMerchants error:", e);
     tableContainer.innerHTML =
@@ -590,54 +524,71 @@ async function deleteMerchant(id) {
 }
 
 // =====================
-//  Guardar wallet destino
+//  Historial de transacciones
 // =====================
-async function saveDestinationWallet() {
-  const merchantId = destinationMerchantSelect.value;
-  if (!merchantId) {
-    setDestinationStatus("Selecciona un merchant primero", true);
-    return;
-  }
-
-  const wallet = destinationWalletInput.value.trim();
-
-  if (!wallet && !confirm("¿Dejar sin wallet destino?")) return;
-
-  try {
-    const res = await fetch(`${API}/merchant/${merchantId}/destination`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ destinationWallet: wallet }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      setDestinationStatus(data.error || "Error al guardar destino", true);
-      return;
-    }
-
-    await loadMerchants();
-
-    setDestinationStatus(
-      data.destinationWallet
-        ? `Destino actualizado: ${data.destinationWallet}`
-        : "Destino eliminado. Claim deshabilitado.",
-      false
-    );
-  } catch (error) {
-    console.error("saveDestinationWallet error:", error);
-    setDestinationStatus("Error de conexión al guardar destino", true);
-  }
+function closeHistory() {
+  historyOverlay?.classList.add("hidden");
 }
 
-// =====================
-//  Ejecutar claim
-// =====================
-async function triggerClaim(merchantId) {
+function renderHistoryRows(rows = []) {
+  if (!rows.length) {
+    return `
+      <tr>
+        <td colspan="6" style="text-align:center;">No hay transacciones recientes.</td>
+      </tr>
+    `;
+  }
+
+  return rows
+    .map(
+      (tx) => `
+        <tr>
+          <td>${tx.date || "-"}</td>
+          <td>${tx.time || "-"}</td>
+          <td>${tx.token || "-"}</td>
+          <td>${Number(tx.amount || 0).toLocaleString("es-ES", {
+            minimumFractionDigits: tx.token === "SOL" ? 4 : 2,
+            maximumFractionDigits: tx.token === "SOL" ? 4 : 2,
+          })}</td>
+          <td class="mono-text">${tx.signature?.slice(0, 10) || "-"}...</td>
+          <td>${tx.status || "-"}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function renderHistory(data) {
+  if (!historyContent) return;
+
+  const rows = data?.data || [];
+  const totals = data?.totals || {};
+  const solTotal = Number(totals.SOL || 0).toFixed(4);
+  const usdcTotal = Number(totals.USDC || 0).toFixed(2);
+
+  historyContent.innerHTML = `
+    <div class="history-meta">
+      <span>SOL acumulado: ${solTotal}</span>
+      <span>USDC acumulado: ${usdcTotal}</span>
+      <span>Total operaciones: ${data?.total ?? rows.length}</span>
+    </div>
+    <div class="table-wrapper tight">
+      <table class="table">
+        <tr>
+          <th>Fecha</th>
+          <th>Hora</th>
+          <th>Token</th>
+          <th>Monto</th>
+          <th>Firma</th>
+          <th>Estado</th>
+        </tr>
+        ${renderHistoryRows(rows)}
+      </table>
+    </div>
+  `;
+}
+
+async function openHistory(merchantId) {
   const merchant = merchantsCache.find((m) => m._id === merchantId);
 
   if (!merchant) {
@@ -645,51 +596,42 @@ async function triggerClaim(merchantId) {
     return;
   }
 
-  if (!merchant.destinationWallet) {
-    alert("Configura una wallet destino antes de usar Claim");
+  const wallet = merchant.registeredWallet || merchant.wallet;
+
+  if (!wallet) {
+    alert("El merchant no tiene una wallet registrada");
     return;
   }
 
-  const claimTokenInput = prompt(
-    "Ingresa el token a reclamar (SOL o USDC)",
-    "SOL"
-  );
-  if (!claimTokenInput) return;
+  if (historyOverlay) historyOverlay.classList.remove("hidden");
+  if (historyTitle)
+    historyTitle.textContent = `Historial de transacciones — ${merchant.username}`;
 
-  const normalized = claimTokenInput.toUpperCase() === "USDC" ? "USDC" : "SOL";
-
-  if (
-    !confirm(
-      `Vas a reclamar ${normalized} de ${merchant.username} hacia ${merchant.destinationWallet}.`
-    )
-  )
-    return;
+  if (historyContent) {
+    historyContent.innerHTML =
+      '<p class="table-status">Buscando transacciones recientes...</p>';
+  }
 
   try {
-    const res = await fetch(`${API}/merchant/${merchantId}/claim`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ token: normalized }),
-    });
-
+    const res = await fetch(
+      `${PUBLIC_API}/transactions?limit=50&wallet=${encodeURIComponent(wallet)}`
+    );
     const data = await res.json();
 
     if (!res.ok) {
-      alert(data.error || "Error al ejecutar claim");
+      historyContent.innerHTML = `<p class="table-status error">${
+        data.error || "No se pudo cargar el historial"
+      }</p>`;
       return;
     }
 
-    alert(
-      `Claim ejecutado.\nToken: ${data.token}\nMonto: ${data.amount}\nTx: ${data.signature}`
-    );
-
-    loadMerchants();
+    renderHistory(data);
   } catch (error) {
-    console.error("triggerClaim error:", error);
-    alert("Error de conexión al ejecutar claim");
+    console.error("openHistory error:", error);
+    if (historyContent) {
+      historyContent.innerHTML =
+        '<p class="table-status error">Error al consultar el historial</p>';
+    }
   }
 }
 
@@ -702,6 +644,14 @@ function logout() {
   window.location.href = "login.html";
 }
 
+if (historyOverlay) {
+  historyOverlay.addEventListener("click", (event) => {
+    if (event.target === historyOverlay) {
+      closeHistory();
+    }
+  });
+}
+
 // =====================
 //  Exportar al window
 // =====================
@@ -711,6 +661,6 @@ window.deleteMerchant = deleteMerchant;
 window.closeModal = closeModal;
 window.logout = logout;
 window.refreshMerchants = refreshMerchants;
-window.triggerClaim = triggerClaim;
-window.saveDestinationWallet = saveDestinationWallet;
+window.openHistory = openHistory;
+window.closeHistory = closeHistory;
 window.approveCashout = window.approveCashout;
