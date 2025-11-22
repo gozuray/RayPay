@@ -410,6 +410,21 @@ function updateStoredUser(fields = {}) {
   }
 }
 
+function smoothClearPanel(container) {
+  if (!container) return;
+  const card = container.querySelector(".history-card");
+
+  if (!card) {
+    container.innerHTML = "";
+    return;
+  }
+
+  card.classList.add("closing");
+  setTimeout(() => {
+    container.innerHTML = "";
+  }, 250);
+}
+
 function setWithdrawStatus(message, type = "info") {
   if (!withdrawWalletStatus) return;
   withdrawWalletStatus.textContent = message || "";
@@ -985,7 +1000,7 @@ async function loadTransactions(filter = "all", options = { render: true }) {
 }
 
 window.hideHistory = () => {
-  historyContainer.innerHTML = "";
+  smoothClearPanel(historyContainer);
 };
 
 // === Crear texto para copiar historial ===
@@ -1150,7 +1165,7 @@ function sendCashoutRequest(methodLabel) {
 // === Panel de retiro ===
 
 function hideBalancePanel() {
-  if (balanceContainer) balanceContainer.innerHTML = "";
+  smoothClearPanel(balanceContainer);
 }
 
 function renderBalancePanel() {
