@@ -15,7 +15,6 @@ import {
 } from "@solana/web3.js";
 import { getDB } from "../db.js";
 import { verifyToken as decodeToken } from "../utils/auth.js";
-import { getBotQrStatus } from "../bot.js";
 
 const router = express.Router();
 
@@ -72,13 +71,12 @@ function checkAdmin(req, res, next) {
 }
 
 router.get("/bot-qr", verifyToken, (_req, res) => {
-  const status = getBotQrStatus();
   res.json({
-    ready: Boolean(status.ready),
-    qrDataUrl: status.qrDataUrl || null,
-    updatedAt: status.updatedAt || null,
-    state: status.state || null,
-    lastError: status.lastError || null,
+    ready: false,
+    qrDataUrl: null,
+    updatedAt: new Date().toISOString(),
+    state: "maintenance",
+    lastError: "Bot en mantenimiento",
   });
 });
 

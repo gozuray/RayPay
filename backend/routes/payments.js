@@ -3,7 +3,6 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
-import { sendReceipt } from "../bot.js";
 
 const router = express.Router();
 
@@ -27,22 +26,6 @@ const connection = new Connection(RPC_URL, {
 });
 
 const toBN = (v) => new BigNumber(String(v));
-
-const buildReceiptMessage = (paymentDoc) => {
-  if (!paymentDoc) return null;
-
-  const hash = String(paymentDoc.signature || "");
-  const merchantWallet = String(paymentDoc.merchantWallet || "");
-
-  return (
-    "📄 *Recibo de Pago*\n\n" +
-    `Monto: ${paymentDoc.amount || "N/A"}\n` +
-    `Fecha: ${paymentDoc.date || ""} ${paymentDoc.time || ""}\n` +
-    `Wallet destino: ...${merchantWallet.slice(-8)}\n` +
-    `Tx: ${hash.slice(0, 6)}...${hash.slice(-6)}\n\n` +
-    "Gracias por tu pago 🙌"
-  );
-};
 
 // Reutilizamos el objeto global
 if (!global.pendingPayments) global.pendingPayments = {};
@@ -361,41 +344,11 @@ router.get("/transactions", async (req, res) => {
   }
 });
 
-router.post("/receipt/:reference", async (req, res) => {
-  try {
-    const { reference } = req.params;
-    const phoneNumber = normalizePhone(req.body?.phoneNumber);
-
-    if (!phoneNumber) {
-      return res.status(400).json({ error: "Número de WhatsApp inválido" });
-    }
-
-    const db = getDB();
-    const payment = await db.collection("payments").findOne({ reference });
-
-    if (!payment) {
-      return res.status(404).json({ error: "Pago no encontrado" });
-    }
-
-    if (payment.status !== "success") {
-      return res.status(400).json({ error: "El pago aún no está confirmado" });
-    }
-
-    const receiptText = buildReceiptMessage(payment);
-
-    if (!receiptText) {
-      return res.status(400).json({ error: "No se pudo preparar el recibo" });
-    }
-
-    await sendReceipt(phoneNumber, receiptText);
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("POST /receipt error:", err);
-    res
-      .status(500)
-      .json({ error: err?.message || "No se pudo enviar el recibo" });
-  }
+router.post("/receipt/:reference", async (_req, res) => {
+  res.status(503).json({
+    error:
+      "El envío de recibos por WhatsApp está en mantenimiento. Inténtalo más tarde.",
+  });
 });
 
 // 📥 CSV de transacciones

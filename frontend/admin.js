@@ -18,8 +18,6 @@ const destinationMerchantSelect = document.getElementById("destinationMerchantSe
 const destinationWalletInput = document.getElementById("destinationWalletInput");
 const destinationStatus = document.getElementById("destinationStatus");
 const cashoutTable = document.getElementById("cashoutTable");
-const botQrImage = document.getElementById("botQrImage");
-const botStatus = document.getElementById("botStatus");
 const sidebarCashout = document.getElementById("sidebarCashout");
 const tabButtons = document.querySelectorAll("[data-tab-target]");
 const tabPanels = document.querySelectorAll(".subpanel");
@@ -37,7 +35,6 @@ let editingID = null;
 let merchantsCache = [];
 const CASHOUT_REQUESTS_KEY = "raypay_cashout_requests";
 const CASHOUT_COMPLETED_KEY = "raypay_cashout_completed";
-let botInterval = null;
 
 // =====================
 //  Helpers de UI
@@ -58,10 +55,6 @@ function setupSubtabs() {
       if (target === "tab-cashout") {
         clearCashoutAlert();
         renderCashoutRequests();
-      } else if (target === "tab-bot") {
-        startBotPolling();
-      } else {
-        stopBotPolling();
       }
     });
   });
@@ -80,7 +73,6 @@ if (sidebarCashout) {
     });
     clearCashoutAlert();
     renderCashoutRequests();
-    stopBotPolling();
   });
 }
 
@@ -106,77 +98,6 @@ function toggleWalletInput() {
 }
 
 formWalletMode.addEventListener("change", toggleWalletInput);
-
-const BOT_POLL_INTERVAL = 6000;
-
-function stopBotPolling() {
-  if (botInterval) {
-    clearInterval(botInterval);
-    botInterval = null;
-  }
-}
-
-function describeBotState(state, lastError) {
-  switch (state) {
-    case "ready":
-      return "Bot listo y conectado ✅";
-    case "qr":
-      return "Bot esperando que escanees el código QR";
-    case "connecting":
-      return "Bot conectando con WhatsApp...";
-    case "disconnected":
-      return "Bot desconectado. Reintentando...";
-    case "error":
-      return `Bot en error${lastError ? `: ${lastError}` : ""}`;
-    default:
-      return "Consultando estado del bot...";
-  }
-}
-
-async function fetchBotQr(showLoading = false) {
-  if (!botQrImage || !botStatus) return;
-
-  if (showLoading) {
-    botStatus.textContent = "Cargando QR...";
-  }
-
-  try {
-    const res = await fetch(`${API}/bot-qr`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-
-    botStatus.textContent = describeBotState(data.state, data.lastError);
-
-    if (data.ready) {
-      botQrImage.style.visibility = "hidden";
-      return;
-    }
-
-    if (data.qrDataUrl) {
-      botQrImage.src = data.qrDataUrl;
-      botQrImage.style.visibility = "visible";
-      const updatedLabel = data.updatedAt
-        ? `Actualizado ${new Date(data.updatedAt).toLocaleTimeString()}`
-        : "QR listo";
-      botStatus.textContent = `Escanea el código para vincular. ${updatedLabel}`;
-    } else {
-      botQrImage.style.visibility = "hidden";
-      botStatus.textContent = "Esperando código QR desde WhatsApp...";
-    }
-  } catch (error) {
-    botStatus.textContent = `❌ No se pudo obtener el QR: ${error.message}`;
-  }
-}
-
-function startBotPolling() {
-  if (!botQrImage || !botStatus) return;
-  stopBotPolling();
-  fetchBotQr(true);
-  botInterval = setInterval(fetchBotQr, BOT_POLL_INTERVAL);
-}
 
 function formatBalance(value, decimals = 4) {
   const num = Number(value ?? 0);
