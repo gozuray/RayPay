@@ -3,6 +3,8 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
+import { verifyToken as decodeToken } from "../utils/auth.js";
+import { ObjectId } from "mongodb";
 
 const router = express.Router();
 
@@ -35,10 +37,100 @@ const normalizePhone = (value) => {
   return digits.length >= 8 ? digits : "";
 };
 
+const isValidPublicKey = (address) => {
+  if (!address) return false;
+  try {
+    new PublicKey(address);
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+
+function requireMerchantAuth(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : "";
+
+  const decoded = decodeToken(token);
+
+  if (!decoded?.id) {
+    return res.status(401).json({ error: "Token inválido o faltante" });
+  }
+
+  req.user = decoded;
+  next();
+}
+
 // Home
 router.get("/", (_req, res) => {
   res.send("RayPay Payments OK");
 });
+
+// 🔐 Leer wallet de destino configurada por el merchant
+router.get(
+  "/merchant/destination-wallet",
+  requireMerchantAuth,
+  async (req, res) => {
+    try {
+      const db = getDB();
+      const merchant = await db
+        .collection("merchants")
+        .findOne({ _id: new ObjectId(req.user.id) });
+
+      return res.json({
+        destinationWallet: merchant?.destinationWallet?.trim() || "",
+      });
+    } catch (error) {
+      console.error("GET /merchant/destination-wallet:", error);
+      return res
+        .status(500)
+        .json({ error: "No se pudo obtener la wallet de retiro" });
+    }
+  }
+);
+
+// 🔐 Guardar wallet de destino configurada por el merchant
+router.put(
+  "/merchant/destination-wallet",
+  requireMerchantAuth,
+  async (req, res) => {
+    try {
+      const { destinationWallet } = req.body || {};
+      const cleanWallet = (destinationWallet || "").trim();
+
+      if (!cleanWallet) {
+        return res
+          .status(400)
+          .json({ error: "Ingresa una wallet pública para retiros" });
+      }
+
+      if (!isValidPublicKey(cleanWallet)) {
+        return res.status(400).json({ error: "Wallet de retiro inválida" });
+      }
+
+      const db = getDB();
+      const merchants = db.collection("merchants");
+
+      const result = await merchants.updateOne(
+        { _id: new ObjectId(req.user.id) },
+        { $set: { destinationWallet: cleanWallet } }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: "Merchant no encontrado" });
+      }
+
+      return res.json({ success: true, destinationWallet: cleanWallet });
+    } catch (error) {
+      console.error("PUT /merchant/destination-wallet:", error);
+      return res
+        .status(500)
+        .json({ error: "No se pudo guardar la wallet de retiro" });
+    }
+  }
+);
 
 // 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {

@@ -506,7 +506,7 @@ button:disabled {
 }
 
 #advanced.visible {
-  max-height: 420px;
+  max-height: 540px;
   opacity: 1;
   transform: translateY(0);
   padding-top: 16px;
@@ -605,6 +605,53 @@ button:disabled {
 
 .advOption:hover {
   background: rgba(125, 107, 255, 0.1);
+}
+
+.withdraw-config {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.withdraw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  text-align: right;
+}
+
+.withdraw-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.withdraw-row input {
+  width: 100%;
+}
+
+.withdraw-status {
+  margin: 0;
+  min-height: 18px;
+}
+
+.status-success {
+  color: #a3f7c3;
+}
+
+.status-error {
+  color: #ffb3b3;
 }
 
 .logout-button {
