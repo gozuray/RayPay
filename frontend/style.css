@@ -225,6 +225,35 @@ button:disabled {
   padding: 20px;
   background: rgba(9, 6, 18, 0.9);
   box-shadow: 0 20px 30px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: panelIn 0.35s ease forwards;
+}
+
+.history-card.closing {
+  animation: panelOut 0.25s ease forwards;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panelOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 .history-header {
@@ -624,11 +653,25 @@ button:disabled {
 }
 
 .wallet-card {
-  display: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition:
+    max-height 0.35s ease,
+    opacity 0.35s ease,
+    transform 0.35s ease;
 }
 
 .wallet-card.open {
-  display: flex;
+  max-height: 320px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .withdraw-config {
