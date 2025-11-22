@@ -49,6 +49,9 @@ const advBalance = document.getElementById("advBalance");
 const advBalancePreview = document.getElementById("advBalancePreview");
 const advLogout = document.getElementById("advLogout");
 const balanceContainer = document.getElementById("balanceContainer");
+const withdrawWalletInput = document.getElementById("withdrawWalletInput");
+const withdrawWalletSave = document.getElementById("withdrawWalletSave");
+const withdrawWalletStatus = document.getElementById("withdrawWalletStatus");
 
 let checkInterval = null;
 let currentReference = null;
@@ -60,6 +63,7 @@ let receiptSending = false;
 let availableBalances = { USDC: 0, SOL: 0 };
 let cachedAvailableBalance = { token: "USDC", amount: 0 };
 let balanceTokenChoice = "USDC";
+let destinationWallet = currentUser?.destinationWallet || "";
 
 // 🌐 URL del backend
 const API_URL =
@@ -388,6 +392,88 @@ async function tryJson(url, options) {
     console.warn(`Falló ${url}:`, err.message);
     return { ok: false, error: err.message };
   }
+}
+
+function updateStoredUser(fields = {}) {
+  try {
+    const stored = JSON.parse(localStorage.getItem("raypay_user"));
+    if (!stored || typeof stored !== "object") return;
+    const updated = { ...stored, ...fields };
+    localStorage.setItem("raypay_user", JSON.stringify(updated));
+  } catch (error) {
+    console.warn("No se pudo actualizar raypay_user", error);
+  }
+}
+
+function setWithdrawStatus(message, type = "info") {
+  if (!withdrawWalletStatus) return;
+  withdrawWalletStatus.textContent = message || "";
+  withdrawWalletStatus.classList.remove("status-success", "status-error");
+  if (type === "success") withdrawWalletStatus.classList.add("status-success");
+  if (type === "error") withdrawWalletStatus.classList.add("status-error");
+}
+
+async function loadDestinationWallet() {
+  if (!token || !withdrawWalletInput) return;
+  const { ok, data, error } = await tryJson(
+    `${API_URL}/merchant/destination-wallet`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (ok && data) {
+    destinationWallet = data.destinationWallet || "";
+    withdrawWalletInput.value = destinationWallet;
+    updateStoredUser({ destinationWallet });
+    if (destinationWallet) {
+      setWithdrawStatus("Wallet de retiro cargada.", "success");
+    }
+  } else if (error) {
+    setWithdrawStatus(error, "error");
+  }
+}
+
+async function saveDestinationWallet() {
+  if (!withdrawWalletInput) return;
+  const chosenWallet = withdrawWalletInput.value.trim();
+
+  if (!chosenWallet) {
+    setWithdrawStatus(
+      "Ingresa una wallet pública de Solana para retiros.",
+      "error"
+    );
+    return;
+  }
+
+  setWithdrawStatus("Guardando wallet de retiro...");
+  withdrawWalletSave?.setAttribute("disabled", "true");
+
+  const { ok, data, error } = await tryJson(
+    `${API_URL}/merchant/destination-wallet`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ destinationWallet: chosenWallet }),
+    }
+  );
+
+  withdrawWalletSave?.removeAttribute("disabled");
+
+  if (ok && data) {
+    destinationWallet = data.destinationWallet || chosenWallet;
+    withdrawWalletInput.value = destinationWallet;
+    updateStoredUser({ destinationWallet });
+    setWithdrawStatus("Wallet registrada con éxito.", "success");
+    return;
+  }
+
+  setWithdrawStatus(error || "No se pudo guardar la wallet", "error");
 }
 
 function updateReceiptStatus(message, disabled = false) {
@@ -1119,6 +1205,24 @@ if (balanceContainer) {
 }
 
 // === Acciones bajo la tuerca ===
+
+if (withdrawWalletInput && destinationWallet) {
+  withdrawWalletInput.value = destinationWallet;
+}
+
+withdrawWalletSave?.addEventListener("click", (event) => {
+  event.preventDefault();
+  saveDestinationWallet();
+});
+
+withdrawWalletInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    saveDestinationWallet();
+  }
+});
+
+loadDestinationWallet();
 
 // Copiar historial
 advCopyHistory.addEventListener("click", async () => {
