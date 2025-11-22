@@ -506,7 +506,7 @@ button:disabled {
 }
 
 #advanced.visible {
-  max-height: 540px;
+  max-height: 620px;
   opacity: 1;
   transform: translateY(0);
   padding-top: 16px;
@@ -515,7 +515,7 @@ button:disabled {
 
 .adv-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -596,15 +596,39 @@ button:disabled {
 }
 
 .advOption {
-  padding: 12px 10px;
+  padding: 14px 10px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .advOption:hover {
   background: rgba(125, 107, 255, 0.1);
+}
+
+.wallet-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+
+.wallet-badge.empty {
+  color: #f9c74f;
+}
+
+.wallet-card {
+  display: none;
+}
+
+.wallet-card.open {
+  display: flex;
 }
 
 .withdraw-config {

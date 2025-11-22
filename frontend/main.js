@@ -47,11 +47,14 @@ const advHistory = document.getElementById("advHistory");
 const advCopyHistory = document.getElementById("advCopyHistory");
 const advBalance = document.getElementById("advBalance");
 const advBalancePreview = document.getElementById("advBalancePreview");
+const advWallet = document.getElementById("advWallet");
+const advWalletBadge = document.getElementById("advWalletBadge");
 const advLogout = document.getElementById("advLogout");
 const balanceContainer = document.getElementById("balanceContainer");
 const withdrawWalletInput = document.getElementById("withdrawWalletInput");
 const withdrawWalletSave = document.getElementById("withdrawWalletSave");
 const withdrawWalletStatus = document.getElementById("withdrawWalletStatus");
+const walletCard = document.getElementById("walletCard");
 
 let checkInterval = null;
 let currentReference = null;
@@ -69,6 +72,8 @@ let destinationWallet = currentUser?.destinationWallet || "";
 const API_URL =
   new URLSearchParams(location.search).get("api") ||
   "https://raypay-backend.onrender.com";
+
+updateWalletBadge();
 
 const COUNTRY_OPTIONS = [
   { code: "PT", name: "Portugal", dial: "+351" },
@@ -413,6 +418,32 @@ function setWithdrawStatus(message, type = "info") {
   if (type === "error") withdrawWalletStatus.classList.add("status-error");
 }
 
+function shortWallet(address) {
+  if (!address) return "Registrar";
+  const clean = address.trim();
+  if (clean.length <= 10) return clean;
+  return `${clean.slice(0, 4)}...${clean.slice(-4)}`;
+}
+
+function updateWalletBadge() {
+  if (!advWalletBadge) return;
+  if (destinationWallet) {
+    advWalletBadge.textContent = shortWallet(destinationWallet);
+    advWalletBadge.classList.remove("empty");
+  } else {
+    advWalletBadge.textContent = "Registrar";
+    advWalletBadge.classList.add("empty");
+  }
+}
+
+function toggleWalletCard() {
+  if (!walletCard) return;
+  walletCard.classList.toggle("open");
+  if (walletCard.classList.contains("open")) {
+    withdrawWalletInput?.focus();
+  }
+}
+
 async function loadDestinationWallet() {
   if (!token || !withdrawWalletInput) return;
   const { ok, data, error } = await tryJson(
@@ -431,6 +462,7 @@ async function loadDestinationWallet() {
     if (destinationWallet) {
       setWithdrawStatus("Wallet de retiro cargada.", "success");
     }
+    updateWalletBadge();
   } else if (error) {
     setWithdrawStatus(error, "error");
   }
@@ -470,6 +502,7 @@ async function saveDestinationWallet() {
     withdrawWalletInput.value = destinationWallet;
     updateStoredUser({ destinationWallet });
     setWithdrawStatus("Wallet registrada con éxito.", "success");
+    updateWalletBadge();
     return;
   }
 
@@ -624,11 +657,13 @@ btn.addEventListener("click", async () => {
   try {
     const fixedAmount = amount.toFixed(decimals);
 
+    const receivingWallet = destinationWallet || merchantWallet || null;
+
     const body = {
       amount: fixedAmount,
       token,
       restaurant: merchantName,
-      merchantWallet: merchantWallet || null,
+      merchantWallet: receivingWallet,
     };
 
     const phone = buildFullPhoneNumber();
@@ -921,8 +956,9 @@ async function loadTransactions(filter = "all", options = { render: true }) {
   }
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
-  const walletParam = merchantWallet
-    ? `&wallet=${encodeURIComponent(merchantWallet)}`
+  const targetWallet = destinationWallet || merchantWallet;
+  const walletParam = targetWallet
+    ? `&wallet=${encodeURIComponent(targetWallet)}`
     : "";
   const url = `${API_URL}/transactions?limit=50${tokenParam}${walletParam}`;
 
@@ -1077,7 +1113,7 @@ function sendCashoutRequest(methodLabel) {
   const entry = {
     merchant: merchantName,
     username: merchantUsername,
-    wallet: merchantWallet,
+    wallet: destinationWallet || merchantWallet,
     token: cachedAvailableBalance.token,
     amount: Number(cachedAvailableBalance.amount || 0),
     method: methodLabel,
@@ -1182,6 +1218,11 @@ advBalance.addEventListener("click", async (e) => {
   hideHistory();
   renderBalancePanel();
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+});
+
+advWallet?.addEventListener("click", (event) => {
+  event.preventDefault();
+  toggleWalletCard();
 });
 
 if (balanceContainer) {
