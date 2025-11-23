@@ -535,11 +535,12 @@ button:disabled {
 }
 
 #advanced.visible {
-  max-height: 620px;
+  max-height: 900px;
   opacity: 1;
   transform: translateY(0);
   padding-top: 16px;
   padding-bottom: 20px;
+  overflow: auto;
 }
 
 .adv-actions {
@@ -668,10 +669,11 @@ button:disabled {
 }
 
 .wallet-card.open {
-  max-height: 320px;
+  max-height: 420px;
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+  overflow: visible;
 }
 
 .withdraw-config {
