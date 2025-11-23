@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { connectMongo } from "./db.js";
+import { connectMongoose } from "./mongoose.js";
 import authRoutes from "./routes/auth.js";
 import paymentsRoutes from "./routes/payments.js";
 import adminRoutes from "./routes/admin.js";
@@ -41,7 +42,7 @@ app.use(express.json());
 // ======================
 //  Conexión a Mongo
 // ======================
-await connectMongo();
+await Promise.all([connectMongo(), connectMongoose()]);
 
 // ======================
 //  Rutas
@@ -53,8 +54,8 @@ app.use("/api/auth", authRoutes);
 // Pagos, historial, etc. (mantienes tus rutas previas)
 app.use("/", paymentsRoutes);
 
-// Admin: /admin/merchants, /admin/create, /admin/merchant/:id
-app.use("/admin", adminRoutes);
+// Admin: /api/admin/merchants, /api/admin/create, /api/admin/merchant/:id
+app.use("/api/admin", adminRoutes);
 
 // Healthcheck simple
 app.get("/", (_req, res) => {
