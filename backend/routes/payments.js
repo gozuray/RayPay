@@ -3,6 +3,8 @@ import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
+import { verifyToken as decodeToken } from "../utils/auth.js";
+import { ObjectId } from "mongodb";
 
 const router = express.Router();
 
@@ -35,10 +37,100 @@ const normalizePhone = (value) => {
   return digits.length >= 8 ? digits : "";
 };
 
+const isValidPublicKey = (address) => {
+  if (!address) return false;
+  try {
+    new PublicKey(address);
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+
+function requireMerchantAuth(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : "";
+
+  const decoded = decodeToken(token);
+
+  if (!decoded?.id) {
+    return res.status(401).json({ error: "Token inválido o faltante" });
+  }
+
+  req.user = decoded;
+  next();
+}
+
 // Home
 router.get("/", (_req, res) => {
   res.send("RayPay Payments OK");
 });
+
+// 🔐 Leer wallet de destino configurada por el merchant
+router.get(
+  "/merchant/destination-wallet",
+  requireMerchantAuth,
+  async (req, res) => {
+    try {
+      const db = getDB();
+      const merchant = await db
+        .collection("merchants")
+        .findOne({ _id: new ObjectId(req.user.id) });
+
+      return res.json({
+        destinationWallet: merchant?.destinationWallet?.trim() || "",
+      });
+    } catch (error) {
+      console.error("GET /merchant/destination-wallet:", error);
+      return res
+        .status(500)
+        .json({ error: "No se pudo obtener la wallet de retiro" });
+    }
+  }
+);
+
+// 🔐 Guardar wallet de destino configurada por el merchant
+router.put(
+  "/merchant/destination-wallet",
+  requireMerchantAuth,
+  async (req, res) => {
+    try {
+      const { destinationWallet } = req.body || {};
+      const cleanWallet = (destinationWallet || "").trim();
+
+      if (!cleanWallet) {
+        return res
+          .status(400)
+          .json({ error: "Ingresa una wallet pública para retiros" });
+      }
+
+      if (!isValidPublicKey(cleanWallet)) {
+        return res.status(400).json({ error: "Wallet de retiro inválida" });
+      }
+
+      const db = getDB();
+      const merchants = db.collection("merchants");
+
+      const result = await merchants.updateOne(
+        { _id: new ObjectId(req.user.id) },
+        { $set: { destinationWallet: cleanWallet } }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: "Merchant no encontrado" });
+      }
+
+      return res.json({ success: true, destinationWallet: cleanWallet });
+    } catch (error) {
+      console.error("PUT /merchant/destination-wallet:", error);
+      return res
+        .status(500)
+        .json({ error: "No se pudo guardar la wallet de retiro" });
+    }
+  }
+);
 
 // 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {
@@ -284,39 +376,6 @@ router.get("/transactions", async (req, res) => {
       USDC: stats.find((s) => s._id === "USDC")?.total || 0,
     };
 
-    let availableTotals = { ...totals };
-
-    try {
-      const merchant = await db
-        .collection("merchants")
-        .findOne({ wallet: merchantWallet });
-
-      if (merchant?._id) {
-        const claimSums = await db
-          .collection("claims")
-          .aggregate([
-            { $match: { merchantId: merchant._id } },
-            {
-              $group: {
-                _id: "$token",
-                total: { $sum: "$amount" },
-              },
-            },
-          ])
-          .toArray();
-
-        const claimedSol = claimSums.find((c) => c._id === "SOL")?.total || 0;
-        const claimedUsdc = claimSums.find((c) => c._id === "USDC")?.total || 0;
-
-        availableTotals = {
-          SOL: Math.max((totals.SOL || 0) - claimedSol, 0),
-          USDC: Math.max((totals.USDC || 0) - claimedUsdc, 0),
-        };
-      }
-    } catch (claimErr) {
-      console.warn("No se pudieron calcular los claims del merchant:", claimErr);
-    }
-
     res.json({
       data: rows.map((tx) => ({
         reference: tx.reference,
@@ -336,7 +395,7 @@ router.get("/transactions", async (req, res) => {
       returned: rows.length,
       filterToken: filterToken || "all",
       totals,
-      availableTotals,
+      availableTotals: totals,
     });
   } catch (e) {
     console.error("transactions:", e);

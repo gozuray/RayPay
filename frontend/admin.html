@@ -15,7 +15,6 @@
       <div class="subtabs">
         <button class="subtab active" data-tab-target="tab-merchants">👤 Merchants</button>
         <button class="subtab" data-tab-target="tab-keys">🔐 Private Keys</button>
-        <button class="subtab" data-tab-target="tab-wallet">🎯 Wallet Claim</button>
       <button class="subtab" data-tab-target="tab-bot">🤖 BOT</button>
       <button class="subtab" data-tab-target="tab-cashout">💸 Retiro de cash</button>
     </div>
@@ -52,21 +51,6 @@
       </section>
     </div>
 
-    <div class="subpanel" data-panel="tab-wallet">
-      <section class="destination-section">
-        <h2>🎯 Wallet destino para claims</h2>
-        <p class="subtitle">
-          Selecciona un merchant y actualiza la wallet donde se enviarán los fondos al presionar Claim.
-        </p>
-        <div class="destination-form">
-          <select id="destinationMerchantSelect"></select>
-          <input id="destinationWalletInput" placeholder="Wallet de destino del merchant" />
-          <button class="btn-primary" onclick="saveDestinationWallet()">Guardar destino</button>
-        </div>
-        <p id="destinationStatus" class="destination-status"></p>
-      </section>
-    </div>
-
     <div class="subpanel" data-panel="tab-cashout">
       <section class="cashout-section">
         <h2>💸 Solicitudes de retiro de cash</h2>
@@ -90,6 +74,16 @@
           </div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div id="historyOverlay" class="history-overlay hidden">
+    <div class="history-card">
+      <div class="history-header">
+        <h2 id="historyTitle">Historial de transacciones</h2>
+        <button class="history-close" onclick="closeHistory()">✕</button>
+      </div>
+      <div id="historyContent" class="history-content"></div>
     </div>
   </div>
 

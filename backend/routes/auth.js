@@ -43,6 +43,7 @@ router.post("/login", async (req, res) => {
         id: user._id,
         username: user.username,
         wallet: user.wallet,
+        destinationWallet: user.destinationWallet || "",
         role: user.role || "merchant",
       },
     });

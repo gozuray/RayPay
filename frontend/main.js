@@ -47,8 +47,14 @@ const advHistory = document.getElementById("advHistory");
 const advCopyHistory = document.getElementById("advCopyHistory");
 const advBalance = document.getElementById("advBalance");
 const advBalancePreview = document.getElementById("advBalancePreview");
+const advWallet = document.getElementById("advWallet");
+const advWalletBadge = document.getElementById("advWalletBadge");
 const advLogout = document.getElementById("advLogout");
 const balanceContainer = document.getElementById("balanceContainer");
+const withdrawWalletInput = document.getElementById("withdrawWalletInput");
+const withdrawWalletSave = document.getElementById("withdrawWalletSave");
+const withdrawWalletStatus = document.getElementById("withdrawWalletStatus");
+const walletCard = document.getElementById("walletCard");
 
 let checkInterval = null;
 let currentReference = null;
@@ -60,11 +66,14 @@ let receiptSending = false;
 let availableBalances = { USDC: 0, SOL: 0 };
 let cachedAvailableBalance = { token: "USDC", amount: 0 };
 let balanceTokenChoice = "USDC";
+let destinationWallet = currentUser?.destinationWallet || "";
 
 // 🌐 URL del backend
 const API_URL =
   new URLSearchParams(location.search).get("api") ||
   "https://raypay-backend.onrender.com";
+
+updateWalletBadge();
 
 const COUNTRY_OPTIONS = [
   { code: "PT", name: "Portugal", dial: "+351" },
@@ -244,6 +253,13 @@ const COUNTRY_OPTIONS = [
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
 
+function closeAdvancedPanel() {
+  advanced.classList.remove("visible");
+  toggleAdvanced.classList.remove("rotating");
+  walletCard?.classList.remove("open");
+  advanced.setAttribute("aria-hidden", "true");
+}
+
 // === Mostrar / ocultar configuración avanzada ===
 toggleAdvanced.addEventListener("click", (e) => {
   e.preventDefault();
@@ -251,16 +267,12 @@ toggleAdvanced.addEventListener("click", (e) => {
 
   const isVisible = advanced.classList.contains("visible");
   if (isVisible) {
-    advanced.classList.remove("visible");
-    toggleAdvanced.classList.remove("rotating");
+    closeAdvancedPanel();
   } else {
     advanced.classList.add("visible");
     toggleAdvanced.classList.add("rotating");
+    advanced.setAttribute("aria-hidden", "false");
   }
-  advanced.setAttribute(
-    "aria-hidden",
-    String(!advanced.classList.contains("visible"))
-  );
 });
 
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
@@ -388,6 +400,131 @@ async function tryJson(url, options) {
     console.warn(`Falló ${url}:`, err.message);
     return { ok: false, error: err.message };
   }
+}
+
+function updateStoredUser(fields = {}) {
+  try {
+    const stored = JSON.parse(localStorage.getItem("raypay_user"));
+    if (!stored || typeof stored !== "object") return;
+    const updated = { ...stored, ...fields };
+    localStorage.setItem("raypay_user", JSON.stringify(updated));
+  } catch (error) {
+    console.warn("No se pudo actualizar raypay_user", error);
+  }
+}
+
+function smoothClearPanel(container) {
+  if (!container) return;
+  const card = container.querySelector(".history-card");
+
+  if (!card) {
+    container.innerHTML = "";
+    return;
+  }
+
+  card.classList.add("closing");
+  setTimeout(() => {
+    container.innerHTML = "";
+  }, 250);
+}
+
+function setWithdrawStatus(message, type = "info") {
+  if (!withdrawWalletStatus) return;
+  withdrawWalletStatus.textContent = message || "";
+  withdrawWalletStatus.classList.remove("status-success", "status-error");
+  if (type === "success") withdrawWalletStatus.classList.add("status-success");
+  if (type === "error") withdrawWalletStatus.classList.add("status-error");
+}
+
+function shortWallet(address) {
+  if (!address) return "Registrar";
+  const clean = address.trim();
+  if (clean.length <= 10) return clean;
+  return `${clean.slice(0, 4)}...${clean.slice(-4)}`;
+}
+
+function updateWalletBadge() {
+  if (!advWalletBadge) return;
+  if (destinationWallet) {
+    advWalletBadge.textContent = shortWallet(destinationWallet);
+    advWalletBadge.classList.remove("empty");
+  } else {
+    advWalletBadge.textContent = "Registrar";
+    advWalletBadge.classList.add("empty");
+  }
+}
+
+function toggleWalletCard() {
+  if (!walletCard) return;
+  walletCard.classList.toggle("open");
+  if (walletCard.classList.contains("open")) {
+    withdrawWalletInput?.focus();
+  }
+}
+
+async function loadDestinationWallet() {
+  if (!token || !withdrawWalletInput) return;
+  const { ok, data, error } = await tryJson(
+    `${API_URL}/merchant/destination-wallet`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (ok && data) {
+    destinationWallet = data.destinationWallet || "";
+    withdrawWalletInput.value = destinationWallet;
+    updateStoredUser({ destinationWallet });
+    if (destinationWallet) {
+      setWithdrawStatus("Wallet de retiro cargada.", "success");
+    }
+    updateWalletBadge();
+  } else if (error) {
+    setWithdrawStatus(error, "error");
+  }
+}
+
+async function saveDestinationWallet() {
+  if (!withdrawWalletInput) return;
+  const chosenWallet = withdrawWalletInput.value.trim();
+
+  if (!chosenWallet) {
+    setWithdrawStatus(
+      "Ingresa una wallet pública de Solana para retiros.",
+      "error"
+    );
+    return;
+  }
+
+  setWithdrawStatus("Guardando wallet de retiro...");
+  withdrawWalletSave?.setAttribute("disabled", "true");
+
+  const { ok, data, error } = await tryJson(
+    `${API_URL}/merchant/destination-wallet`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ destinationWallet: chosenWallet }),
+    }
+  );
+
+  withdrawWalletSave?.removeAttribute("disabled");
+
+  if (ok && data) {
+    destinationWallet = data.destinationWallet || chosenWallet;
+    withdrawWalletInput.value = destinationWallet;
+    updateStoredUser({ destinationWallet });
+    setWithdrawStatus("Wallet registrada con éxito.", "success");
+    updateWalletBadge();
+    return;
+  }
+
+  setWithdrawStatus(error || "No se pudo guardar la wallet", "error");
 }
 
 function updateReceiptStatus(message, disabled = false) {
@@ -538,11 +675,13 @@ btn.addEventListener("click", async () => {
   try {
     const fixedAmount = amount.toFixed(decimals);
 
+    const receivingWallet = destinationWallet || merchantWallet || null;
+
     const body = {
       amount: fixedAmount,
       token,
       restaurant: merchantName,
-      merchantWallet: merchantWallet || null,
+      merchantWallet: receivingWallet,
     };
 
     const phone = buildFullPhoneNumber();
@@ -835,8 +974,9 @@ async function loadTransactions(filter = "all", options = { render: true }) {
   }
 
   const tokenParam = filter !== "all" ? `&token=${filter}` : "";
-  const walletParam = merchantWallet
-    ? `&wallet=${encodeURIComponent(merchantWallet)}`
+  const targetWallet = destinationWallet || merchantWallet;
+  const walletParam = targetWallet
+    ? `&wallet=${encodeURIComponent(targetWallet)}`
     : "";
   const url = `${API_URL}/transactions?limit=50${tokenParam}${walletParam}`;
 
@@ -863,7 +1003,7 @@ async function loadTransactions(filter = "all", options = { render: true }) {
 }
 
 window.hideHistory = () => {
-  historyContainer.innerHTML = "";
+  smoothClearPanel(historyContainer);
 };
 
 // === Crear texto para copiar historial ===
@@ -991,7 +1131,7 @@ function sendCashoutRequest(methodLabel) {
   const entry = {
     merchant: merchantName,
     username: merchantUsername,
-    wallet: merchantWallet,
+    wallet: destinationWallet || merchantWallet,
     token: cachedAvailableBalance.token,
     amount: Number(cachedAvailableBalance.amount || 0),
     method: methodLabel,
@@ -1028,7 +1168,7 @@ function sendCashoutRequest(methodLabel) {
 // === Panel de retiro ===
 
 function hideBalancePanel() {
-  if (balanceContainer) balanceContainer.innerHTML = "";
+  smoothClearPanel(balanceContainer);
 }
 
 function renderBalancePanel() {
@@ -1072,8 +1212,7 @@ function renderBalancePanel() {
 
 advBalance.addEventListener("click", async (e) => {
   e.preventDefault();
-  advanced.classList.remove("visible");
-  toggleAdvanced.classList.remove("rotating");
+  closeAdvancedPanel();
 
   await loadTransactions(currentFilter, { render: false });
   computeAvailableBalance();
@@ -1098,6 +1237,11 @@ advBalance.addEventListener("click", async (e) => {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 });
 
+advWallet?.addEventListener("click", (event) => {
+  event.preventDefault();
+  toggleWalletCard();
+});
+
 if (balanceContainer) {
   balanceContainer.addEventListener("click", (event) => {
     // Cambiar token (USDC / SOL)
@@ -1119,6 +1263,24 @@ if (balanceContainer) {
 }
 
 // === Acciones bajo la tuerca ===
+
+if (withdrawWalletInput && destinationWallet) {
+  withdrawWalletInput.value = destinationWallet;
+}
+
+withdrawWalletSave?.addEventListener("click", (event) => {
+  event.preventDefault();
+  saveDestinationWallet();
+});
+
+withdrawWalletInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    saveDestinationWallet();
+  }
+});
+
+loadDestinationWallet();
 
 // Copiar historial
 advCopyHistory.addEventListener("click", async () => {
@@ -1164,8 +1326,7 @@ advCopy.addEventListener("click", () => {
 
 // Mostrar historial
 advHistory.addEventListener("click", () => {
-  advanced.classList.remove("visible");
-  toggleAdvanced.classList.remove("rotating");
+  closeAdvancedPanel();
   hideBalancePanel();
   loadTransactions("all");
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });

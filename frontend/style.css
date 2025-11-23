@@ -225,6 +225,35 @@ button:disabled {
   padding: 20px;
   background: rgba(9, 6, 18, 0.9);
   box-shadow: 0 20px 30px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: panelIn 0.35s ease forwards;
+}
+
+.history-card.closing {
+  animation: panelOut 0.25s ease forwards;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panelOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 .history-header {
@@ -506,16 +535,17 @@ button:disabled {
 }
 
 #advanced.visible {
-  max-height: 420px;
+  max-height: 900px;
   opacity: 1;
   transform: translateY(0);
   padding-top: 16px;
   padding-bottom: 20px;
+  overflow: auto;
 }
 
 .adv-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -596,15 +626,101 @@ button:disabled {
 }
 
 .advOption {
-  padding: 12px 10px;
+  padding: 14px 10px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .advOption:hover {
   background: rgba(125, 107, 255, 0.1);
+}
+
+.wallet-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+
+.wallet-badge.empty {
+  color: #f9c74f;
+}
+
+.wallet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition:
+    max-height 0.35s ease,
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.wallet-card.open {
+  max-height: 420px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  overflow: visible;
+}
+
+.withdraw-config {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.withdraw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  text-align: right;
+}
+
+.withdraw-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.withdraw-row input {
+  width: 100%;
+}
+
+.withdraw-status {
+  margin: 0;
+  min-height: 18px;
+}
+
+.status-success {
+  color: #a3f7c3;
+}
+
+.status-error {
+  color: #ffb3b3;
 }
 
 .logout-button {
