@@ -1,15 +1,25 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { ObjectId } from "mongodb";
-import { Keypair, Connection, clusterApiUrl, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  Connection,
+  clusterApiUrl,
+  PublicKey,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { getDB } from "../db.js";
 import { verifyToken as decodeToken } from "../utils/auth.js";
+import Merchant from "../models/Merchant.js";
+import Config from "../models/Config.js";
+import mongoose from "../mongoose.js";
 
 const router = express.Router();
 
 const CLUSTER = process.env.SOLANA_CLUSTER || "mainnet-beta";
 const RPC_URL = process.env.RPC_URL || clusterApiUrl(CLUSTER);
 const connection = new Connection(RPC_URL, { commitment: "confirmed" });
+const { Types } = mongoose;
 
 // ⚡ Cache de balances para evitar rate limit
 const BALANCE_CACHE_TTL_MS = Number(process.env.BALANCE_CACHE_TTL_MS || 30000);
@@ -67,6 +77,21 @@ function isValidPublicKey(address) {
   } catch {
     return false;
   }
+}
+
+async function getOrCreateConfig() {
+  const existing = await Config.findOne();
+  if (existing) return existing;
+  return Config.create({ globalFeePercent: 0, globalFeeWallet: "" });
+}
+
+function validateFeePercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return { ok: false, error: "Porcentaje inválido" };
+  if (numeric < 0 || numeric > 20) {
+    return { ok: false, error: "El porcentaje debe estar entre 0 y 20" };
+  }
+  return { ok: true, value: numeric };
 }
 
 /* ============================
@@ -202,11 +227,9 @@ router.get("/merchants", checkAdmin, async (req, res) => {
   try {
     const db = getDB();
 
-    const merchants = await db
-      .collection("merchants")
-      .find({})
-      .project({ password: 0 })
-      .toArray();
+    const merchants = await Merchant.find({}, { password: 0 })
+      .lean()
+      .exec();
 
     const paymentSums = await db
       .collection("payments")
@@ -250,6 +273,7 @@ router.get("/merchants", checkAdmin, async (req, res) => {
         ...merchant,
         registeredWallet,
         receivedTotals,
+        feePercent: merchant.feePercent ?? null,
       };
     });
 
@@ -259,6 +283,92 @@ router.get("/merchants", checkAdmin, async (req, res) => {
   } catch (e) {
     console.error("admin /merchants:", e);
     res.status(500).json({ error: "Error al listar merchants" });
+  }
+});
+
+router.put("/merchants/:id/fee", checkAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { feePercent } = req.body || {};
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "ID de merchant inválido" });
+    }
+
+    const validation = validateFeePercent(feePercent);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const updated = await Merchant.findByIdAndUpdate(
+      id,
+      { feePercent: validation.value },
+      { new: true }
+    )
+      .lean()
+      .exec();
+
+    if (!updated) {
+      return res.status(404).json({ error: "Merchant no encontrado" });
+    }
+
+    res.json({
+      success: true,
+      merchant: {
+        id: updated._id,
+        feePercent: updated.feePercent,
+      },
+    });
+  } catch (e) {
+    console.error("admin PUT /merchants/:id/fee:", e);
+    res.status(500).json({ error: "Error al actualizar comisión" });
+  }
+});
+
+router.get("/config", checkAdmin, async (_req, res) => {
+  try {
+    const config = await getOrCreateConfig();
+    res.json({
+      globalFeePercent: config.globalFeePercent,
+      globalFeeWallet: config.globalFeeWallet,
+      updatedAt: config.updatedAt,
+    });
+  } catch (e) {
+    console.error("admin GET /config:", e);
+    res.status(500).json({ error: "Error al obtener configuración" });
+  }
+});
+
+router.put("/config", checkAdmin, async (req, res) => {
+  try {
+    const { globalFeePercent, globalFeeWallet } = req.body || {};
+
+    const validation = validateFeePercent(globalFeePercent);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    if (!globalFeeWallet || !isValidPublicKey(globalFeeWallet)) {
+      return res.status(400).json({ error: "Wallet de comisiones inválida" });
+    }
+
+    const updated = await Config.findOneAndUpdate(
+      {},
+      { globalFeePercent: validation.value, globalFeeWallet },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    )
+      .lean()
+      .exec();
+
+    res.json({
+      success: true,
+      globalFeePercent: updated.globalFeePercent,
+      globalFeeWallet: updated.globalFeeWallet,
+      updatedAt: updated.updatedAt,
+    });
+  } catch (e) {
+    console.error("admin PUT /config:", e);
+    res.status(500).json({ error: "Error al guardar configuración" });
   }
 });
 
@@ -320,6 +430,7 @@ router.post("/create", checkAdmin, async (req, res) => {
       destinationWallet: destinationWallet?.trim() || "",
       password: hashed,
       role: "merchant",
+      feePercent: null,
     });
 
     // Guardar private key si fue auto

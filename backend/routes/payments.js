@@ -1,10 +1,24 @@
 import express from "express";
-import { PublicKey, Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
+import {
+  PublicKey,
+  Connection,
+  Keypair,
+  clusterApiUrl,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { encodeURL, findReference } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { getDB } from "../db.js";
 import { verifyToken as decodeToken } from "../utils/auth.js";
 import { ObjectId } from "mongodb";
+import Merchant from "../models/Merchant.js";
+import Config from "../models/Config.js";
+import {
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token";
 
 const router = express.Router();
 
@@ -46,6 +60,49 @@ const isValidPublicKey = (address) => {
     return false;
   }
 };
+
+async function getOrCreateConfig() {
+  const existing = await Config.findOne();
+  if (existing) return existing;
+  return Config.create({ globalFeePercent: 0, globalFeeWallet: "" });
+}
+
+function validateAmountToLamports(rawAmount, token) {
+  const amountBN = new BigNumber(String(rawAmount || "")).multipliedBy(1);
+  if (!amountBN.isFinite() || amountBN.lte(0)) {
+    throw new Error("Monto inválido");
+  }
+
+  const decimals = token === "SOL" ? 9 : 6;
+  const base = new BigNumber(10).pow(decimals);
+  const lamports = amountBN.multipliedBy(base).integerValue(BigNumber.ROUND_FLOOR);
+
+  return {
+    lamports: lamports.toNumber(),
+    decimals,
+  };
+}
+
+function calculateSplit(totalLamports, feePercent) {
+  const feeLamports = Math.floor(totalLamports * (feePercent / 100));
+  const merchantAmount = totalLamports - feeLamports;
+  if (merchantAmount < 0) {
+    throw new Error("El fee no puede exceder el monto total");
+  }
+  return { feeLamports, merchantAmount };
+}
+
+async function ensureAtaInstructions({ mint, owner, payer }) {
+  const ata = await getAssociatedTokenAddress(mint, owner, true);
+  const info = await connection.getAccountInfo(ata);
+  const instructions = [];
+  if (!info) {
+    instructions.push(
+      createAssociatedTokenAccountInstruction(payer, ata, owner, mint)
+    );
+  }
+  return { ata, instructions };
+}
 
 function requireMerchantAuth(req, res, next) {
   const authHeader = req.headers.authorization || "";
@@ -131,6 +188,148 @@ router.put(
     }
   }
 );
+
+router.post("/api/payments/create", async (req, res) => {
+  try {
+    const { amount, token = "USDC", merchantId, payer, restaurant } = req.body || {};
+    const chosenToken = token === "SOL" ? "SOL" : "USDC";
+
+    if (!merchantId || !ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ error: "merchantId inválido" });
+    }
+
+    if (!payer || !isValidPublicKey(payer)) {
+      return res.status(400).json({ error: "Wallet del pagador inválida" });
+    }
+
+    const merchant = await Merchant.findById(merchantId).lean().exec();
+    if (!merchant) {
+      return res.status(404).json({ error: "Merchant no encontrado" });
+    }
+
+    const recipientWallet = (merchant.destinationWallet || merchant.wallet || "").trim();
+    if (!recipientWallet || !isValidPublicKey(recipientWallet)) {
+      return res
+        .status(400)
+        .json({ error: "El merchant no tiene una wallet válida configurada" });
+    }
+
+    const { lamports: totalLamports } = validateAmountToLamports(amount, chosenToken);
+
+    const config = await getOrCreateConfig();
+    const hasMerchantFee =
+      merchant.feePercent !== null && merchant.feePercent !== undefined;
+    const feePercent = hasMerchantFee
+      ? merchant.feePercent
+      : config.globalFeePercent || 0;
+
+    const { feeLamports, merchantAmount } = calculateSplit(
+      totalLamports,
+      feePercent
+    );
+
+    if (feeLamports > 0 && !config.globalFeeWallet) {
+      return res.status(400).json({ error: "Wallet global de comisiones no configurada" });
+    }
+
+    if (feeLamports > 0 && !isValidPublicKey(config.globalFeeWallet)) {
+      return res.status(400).json({ error: "Wallet global de comisiones inválida" });
+    }
+
+    const payerPk = new PublicKey(payer);
+    const merchantPk = new PublicKey(recipientWallet);
+    const feeWalletPk =
+      feeLamports > 0 && config.globalFeeWallet
+        ? new PublicKey(config.globalFeeWallet)
+        : null;
+
+    if (merchantAmount <= 0) {
+      return res.status(400).json({ error: "El monto para el merchant debe ser mayor a 0" });
+    }
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    const transaction = new Transaction({ feePayer: payerPk, blockhash, lastValidBlockHeight });
+
+    if (chosenToken === "SOL") {
+      transaction.add(
+        SystemProgram.transfer({
+          fromPubkey: payerPk,
+          toPubkey: merchantPk,
+          lamports: merchantAmount,
+        })
+      );
+
+      if (feeWalletPk && feeLamports > 0) {
+        transaction.add(
+          SystemProgram.transfer({
+            fromPubkey: payerPk,
+            toPubkey: feeWalletPk,
+            lamports: feeLamports,
+          })
+        );
+      }
+    } else {
+      const usdcMint = USDC_MINTS[CLUSTER];
+      if (!usdcMint) {
+        return res.status(400).json({ error: "Mint de USDC no disponible para el cluster" });
+      }
+
+      const mintPk = new PublicKey(usdcMint);
+
+      const [payerAtaInfo, merchantAtaInfo, feeAtaInfo] = await Promise.all([
+        ensureAtaInstructions({ mint: mintPk, owner: payerPk, payer: payerPk }),
+        ensureAtaInstructions({ mint: mintPk, owner: merchantPk, payer: payerPk }),
+        feeWalletPk
+          ? ensureAtaInstructions({ mint: mintPk, owner: feeWalletPk, payer: payerPk })
+          : Promise.resolve({ ata: null, instructions: [] }),
+      ]);
+
+      [...payerAtaInfo.instructions, ...merchantAtaInfo.instructions, ...feeAtaInfo.instructions].forEach(
+        (ix) => transaction.add(ix)
+      );
+
+      transaction.add(
+        createTransferInstruction(
+          payerAtaInfo.ata,
+          merchantAtaInfo.ata,
+          payerPk,
+          BigInt(merchantAmount)
+        )
+      );
+
+      if (feeWalletPk && feeLamports > 0 && feeAtaInfo.ata) {
+        transaction.add(
+          createTransferInstruction(
+            payerAtaInfo.ata,
+            feeAtaInfo.ata,
+            payerPk,
+            BigInt(feeLamports)
+          )
+        );
+      }
+    }
+
+    const serialized = transaction
+      .serialize({ requireAllSignatures: false, verifySignatures: false })
+      .toString("base64");
+
+    res.json({
+      transaction: serialized,
+      token: chosenToken,
+      cluster: CLUSTER,
+      feePercent,
+      feeLamports,
+      merchantLamports: merchantAmount,
+      totalLamports,
+      merchantWallet: recipientWallet,
+      feeWallet: config.globalFeeWallet,
+      restaurant: restaurant || merchant.username,
+    });
+  } catch (error) {
+    console.error("/api/payments/create error:", error);
+    res.status(500).json({ error: error.message || "No se pudo crear la transacción" });
+  }
+});
 
 // 🟣 Crear pago (QR) — soporta multi-merchant
 router.post("/create-payment", (req, res) => {
