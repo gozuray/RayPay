@@ -253,6 +253,13 @@ const COUNTRY_OPTIONS = [
 // 🎵 Sonido para pago confirmado
 const ding = new Audio("assets/sounds/cash-sound.mp3");
 
+function closeAdvancedPanel() {
+  advanced.classList.remove("visible");
+  toggleAdvanced.classList.remove("rotating");
+  walletCard?.classList.remove("open");
+  advanced.setAttribute("aria-hidden", "true");
+}
+
 // === Mostrar / ocultar configuración avanzada ===
 toggleAdvanced.addEventListener("click", (e) => {
   e.preventDefault();
@@ -260,16 +267,12 @@ toggleAdvanced.addEventListener("click", (e) => {
 
   const isVisible = advanced.classList.contains("visible");
   if (isVisible) {
-    advanced.classList.remove("visible");
-    toggleAdvanced.classList.remove("rotating");
+    closeAdvancedPanel();
   } else {
     advanced.classList.add("visible");
     toggleAdvanced.classList.add("rotating");
+    advanced.setAttribute("aria-hidden", "false");
   }
-  advanced.setAttribute(
-    "aria-hidden",
-    String(!advanced.classList.contains("visible"))
-  );
 });
 
 toggleAdvanced.addEventListener("mousedown", (e) => e.preventDefault());
@@ -1209,8 +1212,7 @@ function renderBalancePanel() {
 
 advBalance.addEventListener("click", async (e) => {
   e.preventDefault();
-  advanced.classList.remove("visible");
-  toggleAdvanced.classList.remove("rotating");
+  closeAdvancedPanel();
 
   await loadTransactions(currentFilter, { render: false });
   computeAvailableBalance();
@@ -1324,8 +1326,7 @@ advCopy.addEventListener("click", () => {
 
 // Mostrar historial
 advHistory.addEventListener("click", () => {
-  advanced.classList.remove("visible");
-  toggleAdvanced.classList.remove("rotating");
+  closeAdvancedPanel();
   hideBalancePanel();
   loadTransactions("all");
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
